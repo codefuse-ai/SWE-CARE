@@ -79,30 +79,39 @@ def get_args():
     global_namespace, remaining_args = global_parser.parse_known_args(global_args)
 
     # Create the appropriate subcommand parser
-    if subcommand == "get_top_repos":
-        sub_parser = argparse.ArgumentParser(
-            prog=f"swe_reason_bench.collect {subcommand}"
-        )
-        sub_parser.add_argument("--language", type=str, required=True)
-        sub_parser.add_argument("--top_n", type=int, required=True)
+    match subcommand:
+        case "get_top_repos":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_reason_bench.collect {subcommand}"
+            )
+            sub_parser.add_argument("--language", type=str, required=True)
+            sub_parser.add_argument("--top_n", type=int, required=True)
 
-    elif subcommand in ["build_code_review_dataset", "get_graphql_prs_data"]:
-        sub_parser = argparse.ArgumentParser(
-            prog=f"swe_reason_bench.collect {subcommand}"
-        )
-        repo_group = sub_parser.add_mutually_exclusive_group(required=True)
-        repo_group.add_argument(
-            "--repo-file", type=Path, help="Path to repository file"
-        )
-        repo_group.add_argument(
-            "--repo", type=str, help="Repository in format 'owner/repo'"
-        )
-        if subcommand == "get_graphql_prs_data":
+        case "get_graphql_prs_data":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_reason_bench.collect {subcommand}"
+            )
+            repo_group = sub_parser.add_mutually_exclusive_group(required=True)
+            repo_group.add_argument(
+                "--repo-file", type=Path, help="Path to repository file"
+            )
+            repo_group.add_argument(
+                "--repo", type=str, help="Repository in format 'owner/repo'"
+            )
             sub_parser.add_argument(
                 "--max-number",
                 type=int,
                 default=10,
                 help="Maximum number of PRs to fetch per page",
+            )
+        case "build_code_review_dataset":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_reason_bench.collect {subcommand}"
+            )
+            sub_parser.add_argument(
+                "--graphql-prs-data-file",
+                type=Path,
+                help="Path to GraphQL PRs data file",
             )
 
     # Parse subcommand arguments
@@ -140,20 +149,20 @@ def main():
         common_kwargs = {"output_dir": args.output_dir, "tokens": args.tokens}
 
         # Add specific arguments based on subcommand
-        if args.command == "get_top_repos":
-            function(language=args.language, top_n=args.top_n, **common_kwargs)
-        elif args.command in [
-            "build_code_review_dataset",
-            "get_graphql_prs_data",
-        ]:
-            kwargs = {
-                "repo_file": getattr(args, "repo_file", None),
-                "repo": getattr(args, "repo", None),
-                **common_kwargs,
-            }
-            if args.command == "get_graphql_prs_data":
-                kwargs["max_number"] = getattr(args, "max_number", 10)
-            function(**kwargs)
+        match args.command:
+            case "get_top_repos":
+                function(language=args.language, top_n=args.top_n, **common_kwargs)
+            case "get_graphql_prs_data":
+                function(
+                    repo_file=getattr(args, "repo_file", None),
+                    repo=getattr(args, "repo", None),
+                    max_number=getattr(args, "max_number", 10),
+                    **common_kwargs,
+                )
+            case "build_code_review_dataset":
+                function(
+                    graphql_prs_data_file=args.graphql_prs_data_file, **common_kwargs
+                )
     else:
         print("Please specify a command. Use --help for available commands.")
 
