@@ -16,7 +16,7 @@ class ResolvedIssue:
 
 @dataclass_json
 @dataclass
-class Metadata:
+class IssueResolvingTaskMetadata:
     """Schema for metadata instances."""
 
     problem_domains: list[str]
@@ -45,7 +45,34 @@ class IssueResolvingTask:
     FAIL_TO_PASS: list[str]
     PASS_TO_PASS: list[str]
     version: str
-    metadata: Metadata
+    metadata: IssueResolvingTaskMetadata
+
+
+@dataclass_json
+@dataclass
+class CodeReviewTaskMetadata:
+    """Schema for code review metadata instances."""
+
+    problem_domains: list[str]
+    difficulty: str
+    estimated_review_effort: int
+
+
+@dataclass_json
+@dataclass
+class ReferenceReviewComment:
+    """Schema for reference review comment instances."""
+
+    body: str
+
+    created_at: str
+    updated_at: str
+    path: str
+    diff_hunk: str
+    line: int
+    start_line: int
+    original_line: int
+    original_start_line: int
 
 
 @dataclass_json
@@ -64,8 +91,10 @@ class CodeReviewTask:
     hints_text: str
     resolved_issues: list[ResolvedIssue]
     base_commit: str
-    review_head_commit: str
-    review_head_commit_message: str
-    review_commit_known_issues: list[dict[str, Any]]
-    patch: str
-    metadata: Metadata
+    head_commit_to_review: str
+    head_commit_message_to_review: str
+    patch_to_review: str
+    reference_review_comments: list[ReferenceReviewComment]
+    merge_commit: str
+    merged_patch: str
+    metadata: CodeReviewTaskMetadata

@@ -30,7 +30,7 @@ def get_top_repos(
     if tokens:
         # Use a random token if provided
         token = random.choice(tokens)
-        headers["Authorization"] = f"token {token}"
+        headers["Authorization"] = f"Bearer {token}"
 
     base_url = "https://api.github.com/search/repositories"
 

@@ -113,6 +113,12 @@ def get_args():
                 type=Path,
                 help="Path to GraphQL PRs data file",
             )
+            sub_parser.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=False,
+                help="Skip processing existing instance_id in the output file (default: False)",
+            )
 
     # Parse subcommand arguments
     sub_namespace = sub_parser.parse_args(remaining_args)
@@ -161,7 +167,9 @@ def main():
                 )
             case "build_code_review_dataset":
                 function(
-                    graphql_prs_data_file=args.graphql_prs_data_file, **common_kwargs
+                    graphql_prs_data_file=args.graphql_prs_data_file,
+                    skip_existing=getattr(args, "skip_existing", False),
+                    **common_kwargs,
                 )
     else:
         print("Please specify a command. Use --help for available commands.")
