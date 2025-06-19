@@ -25,7 +25,7 @@ class IssueResolvingTaskMetadata:
 
 @dataclass_json
 @dataclass
-class IssueResolvingTask:
+class IssueResolvingTaskInstance:
     """Schema for Issue Resolving task instances."""
 
     instance_id: str
@@ -77,7 +77,18 @@ class ReferenceReviewComment:
 
 @dataclass_json
 @dataclass
-class CodeReviewTask:
+class CommitToReview:
+    """Schema for commit to review instances."""
+
+    head_commit: str
+    head_commit_message: str
+    patch_to_review: str
+    reference_review_comments: list[ReferenceReviewComment]
+
+
+@dataclass_json
+@dataclass
+class CodeReviewTaskInstance:
     """Schema for Code Review task instances."""
 
     instance_id: str
@@ -91,10 +102,7 @@ class CodeReviewTask:
     hints_text: str
     resolved_issues: list[ResolvedIssue]
     base_commit: str
-    head_commit_to_review: str
-    head_commit_message_to_review: str
-    patch_to_review: str
-    reference_review_comments: list[ReferenceReviewComment]
+    commit_to_review: CommitToReview
     merge_commit: str
     merged_patch: str
     metadata: CodeReviewTaskMetadata

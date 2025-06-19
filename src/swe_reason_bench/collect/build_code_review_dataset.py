@@ -6,8 +6,9 @@ from typing import Any, Optional
 from tqdm import tqdm
 
 from swe_reason_bench.schema.dataset import (
-    CodeReviewTask,
+    CodeReviewTaskInstance,
     CodeReviewTaskMetadata,
+    CommitToReview,
     ResolvedIssue,
 )
 from swe_reason_bench.utils.estimate import (
@@ -167,7 +168,7 @@ def build_code_review_dataset(
                 )
 
                 # Create CodeReviewTask instance
-                task = CodeReviewTask(
+                task = CodeReviewTaskInstance(
                     instance_id=instance_id,
                     repo=repo,
                     language=language,
@@ -179,10 +180,12 @@ def build_code_review_dataset(
                     hints_text=hints_text,
                     resolved_issues=resolved_issues,
                     base_commit=base_commit,
-                    head_commit_to_review=head_commit_to_review,
-                    head_commit_message_to_review=head_commit_message_to_review,
-                    patch_to_review=patch_to_review,
-                    reference_review_comments=reference_review_comments,
+                    commit_to_review=CommitToReview(
+                        head_commit=head_commit_to_review,
+                        head_commit_message=head_commit_message_to_review,
+                        patch_to_review=patch_to_review,
+                        reference_review_comments=reference_review_comments,
+                    ),
                     merge_commit=merge_commit,
                     merged_patch=merged_patch,
                     metadata=metadata,
