@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 from typing import Any, Optional
 
+from loguru import logger
 from tqdm import tqdm
 
 from swe_reason_bench.schema.dataset import (
@@ -91,13 +92,13 @@ def build_code_review_dataset(
                 # Extract repo name from URL
                 url = pr_data.get("url", "")
                 if not url:
-                    print("Skipping PR without URL")
+                    logger.warning("Skipping PR without URL")
                     continue
 
                 # Parse repo from URL like https://github.com/{repo_owner}/{repo_name}/pull/{pull_number}
                 url_parts = url.split("/")
                 if len(url_parts) < 5:
-                    print(f"Invalid URL format: {url}")
+                    logger.warning(f"Invalid URL format: {url}")
                     continue
 
                 repo_owner = url_parts[-4]
@@ -111,10 +112,10 @@ def build_code_review_dataset(
                 # Check if instance already exists and handle according to skip_existing flag
                 if instance_id in existing_instances:
                     if skip_existing:
-                        print(f"Skipping existing instance {instance_id}")
+                        logger.info(f"Skipping existing instance {instance_id}")
                         continue
                     else:
-                        print(f"Replacing existing instance {instance_id}")
+                        logger.info(f"Replacing existing instance {instance_id}")
 
                 # Extract basic fields
                 language = pr_data.get("repository_language", "")
@@ -193,10 +194,10 @@ def build_code_review_dataset(
 
                 # Store the task data
                 all_instances[instance_id] = json.loads(task.to_json())
-                print(f"Processed instance: {instance_id}")
+                logger.info(f"Processed instance: {instance_id}")
 
             except Exception as e:
-                print(f"Error processing PR: {e}")
+                logger.error(f"Error processing PR: {e}")
                 continue
 
     # Write all instances to the output file (this replaces the entire file)
@@ -204,4 +205,4 @@ def build_code_review_dataset(
         for instance_data in all_instances.values():
             output_f.write(json.dumps(instance_data) + "\n")
 
-    print(f"Code review dataset saved to {output_file}")
+    logger.success(f"Code review dataset saved to {output_file}")

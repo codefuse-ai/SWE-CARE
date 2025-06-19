@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from loguru import logger
 from tqdm import tqdm
 
 # GitHub GraphQL API endpoint
@@ -978,7 +979,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
 
     # Log pagination activity if any occurred
     if pagination_info:
-        print(f"  PR #{pr_number}: Paginated {'; '.join(pagination_info)}")
+        logger.info(f"  PR #{pr_number}: Paginated {'; '.join(pagination_info)}")
 
     return pr
 
@@ -1060,12 +1061,12 @@ def get_repo_pr_data(
                         if current_page_size > 1:
                             # Reduce page size and retry
                             current_page_size = max(1, current_page_size // 2)
-                            print(
+                            logger.info(
                                 f"Hit node limit, reducing page size to {current_page_size} for {repo}"
                             )
                             continue
                         else:
-                            print(
+                            logger.info(
                                 f"Cannot reduce page size further for {repo}, skipping..."
                             )
                             return all_prs
@@ -1094,12 +1095,12 @@ def get_repo_pr_data(
 
             # Fetch complete data for each PR (including all nested paginated data)
             complete_prs = []
-            print(
+            logger.info(
                 f"Fetching complete data for {len(prs)} PRs from page (page size: {current_page_size})..."
             )
             for i, pr in enumerate(prs, 1):
                 try:
-                    print(
+                    logger.info(
                         f"  Processing PR #{pr.get('number', 'unknown')} ({i}/{len(prs)})",
                         end=" ",
                     )
@@ -1109,9 +1110,9 @@ def get_repo_pr_data(
                         "totalCount", 0
                     )
                     if closing_issues_count > 0:
-                        print(f"✓ (has {closing_issues_count} closing issues)")
+                        logger.info(f"✓ (has {closing_issues_count} closing issues)")
                     else:
-                        print("✗ (no closing issues)")
+                        logger.info("✗ (no closing issues)")
                         continue
 
                     complete_pr = fetch_complete_pr_data(pr, headers)
@@ -1120,7 +1121,7 @@ def get_repo_pr_data(
                     # Add small delay between nested requests
                     time.sleep(0.05)
                 except Exception as e:
-                    print(
+                    logger.warning(
                         f"✗ Warning: Failed to fetch complete data for PR #{pr.get('number', 'unknown')}: {e}"
                     )
                     # For error cases, still check if original PR has closing issues
@@ -1131,11 +1132,11 @@ def get_repo_pr_data(
 
             # Log filtering statistics
             if complete_prs:
-                print(
+                logger.info(
                     f"  → Included {len(complete_prs)} PRs with closing issues from this page"
                 )
             else:
-                print("  → No PRs with closing issues found on this page")
+                logger.info("  → No PRs with closing issues found on this page")
 
             # Check if we've reached the maximum number of PRs
             if len(all_prs) >= max_number:
@@ -1160,7 +1161,9 @@ def get_repo_pr_data(
                     current_time = int(time.time())
                     wait_time = max(0, reset_time - current_time)
                     if wait_time > 0:
-                        print(f"Rate limit approaching. Waiting {wait_time} seconds...")
+                        logger.info(
+                            f"Rate limit approaching. Waiting {wait_time} seconds..."
+                        )
                         time.sleep(wait_time)
 
             # Small delay to be respectful to the API
@@ -1168,22 +1171,26 @@ def get_repo_pr_data(
 
         except requests.exceptions.RequestException as e:
             retry_count += 1
-            print(
+            logger.error(
                 f"Error fetching PR data for {repo} (attempt {retry_count}/{max_retries}): {e}"
             )
 
             if retry_count >= max_retries:
-                print(f"Max retries ({max_retries}) reached for {repo}. Breaking loop.")
+                logger.error(
+                    f"Max retries ({max_retries}) reached for {repo}. Breaking loop."
+                )
                 break
 
             if hasattr(e, "response") and e.response is not None:
                 if e.response.status_code == 403:
-                    print("Rate limit exceeded. Try using GitHub tokens or waiting.")
+                    logger.warning(
+                        "Rate limit exceeded. Try using GitHub tokens or waiting."
+                    )
 
             # Wait before retrying
             time.sleep(2**retry_count)  # Exponential backoff
 
-    print(
+    logger.info(
         f"Collected {len(all_prs)} PRs with closing issues for {repo} ({repository_language})"
     )
     for pr in all_prs:
@@ -1237,7 +1244,7 @@ def get_graphql_prs_data(
                     repo_name = repo_data.get("name")
 
                     if not repo_name:
-                        print(f"No 'name' field found in line: {line}")
+                        logger.warning(f"No 'name' field found in line: {line}")
                         continue
 
                     # Get PR data for this repository
@@ -1259,12 +1266,12 @@ def get_graphql_prs_data(
                             for pr in pr_data:
                                 out_f.write(json.dumps(pr) + "\n")
 
-                        print(f"Saved {len(pr_data)} PRs to {output_file}")
+                        logger.info(f"Saved {len(pr_data)} PRs to {output_file}")
 
                 except json.JSONDecodeError as e:
-                    print(f"Error parsing JSON line: {line}, error: {e}")
+                    logger.error(f"Error parsing JSON line: {line}, error: {e}")
                 except Exception as e:
-                    print(
+                    logger.error(
                         f"Error processing repository {repo_name if 'repo_name' in locals() else 'unknown'}: {e}"
                     )
 
@@ -1286,7 +1293,7 @@ def get_graphql_prs_data(
                 for pr in pr_data:
                     out_f.write(json.dumps(pr) + "\n")
 
-            print(f"Saved {len(pr_data)} PRs to {output_file}")
+            logger.info(f"Saved {len(pr_data)} PRs to {output_file}")
 
     else:
         raise ValueError("Either repo_file or repo must be specified")

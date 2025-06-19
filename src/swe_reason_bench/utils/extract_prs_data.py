@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import requests
+from loguru import logger
 
 from swe_reason_bench.schema.dataset import ReferenceReviewComment
 
@@ -180,7 +181,9 @@ def extract_patch_between_commits(
             patch_to_review = response.text
             return patch_to_review
     except Exception as e:
-        print(f"Failed to fetch patch for {repo} {base_commit}...{head_commit}: {e}")
+        logger.error(
+            f"Failed to fetch patch for {repo} {base_commit}...{head_commit}: {e}"
+        )
         return ""
 
 
@@ -204,5 +207,5 @@ def extract_pr_patch(
         if response.status_code == 200:
             return response.text
     except Exception as e:
-        print(f"Failed to fetch patch for {repo} PR #{pull_number}: {e}")
+        logger.error(f"Failed to fetch patch for {repo} PR #{pull_number}: {e}")
         return ""

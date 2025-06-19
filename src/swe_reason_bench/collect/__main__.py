@@ -2,6 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from loguru import logger
+
 from swe_reason_bench.collect.build_code_review_dataset import (
     build_code_review_dataset,
 )
@@ -137,7 +139,7 @@ def get_args():
 
     # Ensure output_dir is provided
     if not final_namespace.output_dir:
-        print("error: the following arguments are required: --output-dir")
+        logger.error("the following arguments are required: --output-dir")
         sys.exit(2)
 
     return final_namespace
@@ -172,7 +174,7 @@ def main():
                     **common_kwargs,
                 )
     else:
-        print("Please specify a command. Use --help for available commands.")
+        logger.info("Please specify a command. Use --help for available commands.")
 
 
 if __name__ == "__main__":
