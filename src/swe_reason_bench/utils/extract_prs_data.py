@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
 from typing import Any, Optional
@@ -112,45 +113,76 @@ def extract_reference_review_comments(
 
     # Get all review threads that are resolved
     review_threads = pr_data.get("reviewThreads", {}).get("nodes", [])
-    resolved_comment_ids = set()
+    resolved_review_threads_with_comment_ids = defaultdict(list)
 
-    # Collect IDs of comments in resolved threads
+    # Collect IDs of comments in resolved threads, mapping thread ID to list of comment IDs
     for thread in review_threads:
         if thread.get("isResolved", False):
             thread_comments = thread.get("comments", {}).get("nodes", [])
             for comment in thread_comments:
                 comment_id = comment.get("id")
                 if comment_id:
-                    resolved_comment_ids.add(comment_id)
+                    resolved_review_threads_with_comment_ids[thread.get("id")].append(
+                        comment_id
+                    )
 
-    # Get all review comments and filter by resolved status and commit
+    # Get all review comments from all reviews
     reviews = pr_data.get("reviews", {}).get("nodes", [])
+    comment_id_to_comment = {}
+
     for review in reviews:
         review_comments = review.get("comments", {}).get("nodes", [])
         for comment in review_comments:
             comment_id = comment.get("id")
-            original_commit_oid = comment.get("originalCommit", {}).get("oid")
+            if comment_id:
+                comment_id_to_comment[comment_id] = comment
 
-            # Only include comments that are:
-            # 1. In resolved threads
-            # 2. Associated with the commit we're reviewing
-            if (
-                comment_id in resolved_comment_ids
-                and original_commit_oid == commit_to_review
-            ):
-                reference_review_comments.append(
-                    ReferenceReviewComment(
-                        body=comment.get("body", ""),
-                        created_at=comment.get("createdAt", ""),
-                        updated_at=comment.get("updatedAt", ""),
-                        path=comment.get("path", ""),
-                        diff_hunk=comment.get("diffHunk", ""),
-                        line=comment.get("line", 0),
-                        start_line=comment.get("startLine", 0),
-                        original_line=comment.get("originalLine", 0),
-                        original_start_line=comment.get("originalStartLine", 0),
-                    )
-                )
+    # Group comments by thread for resolved threads with matching commit
+    thread_comments_map = defaultdict(list)
+
+    for thread_id, comment_ids in resolved_review_threads_with_comment_ids.items():
+        for comment_id in comment_ids:
+            comment = comment_id_to_comment.get(comment_id)
+            if comment:
+                # Check if the comment's originalCommit matches commit_to_review
+                original_commit = comment.get("originalCommit", {})
+                if original_commit and original_commit.get("oid") == commit_to_review:
+                    thread_comments_map[thread_id].append(comment)
+
+    # Create ReferenceReviewComment for each resolved thread with matching comments
+    for thread_id, comments in thread_comments_map.items():
+        if not comments:
+            continue
+
+        # Sort comments by createdAt date
+        comments.sort(key=lambda c: c.get("createdAt", ""))
+
+        # Aggregate comment bodies
+        aggregated_text = "\n".join(
+            comment.get("body", "") for comment in comments if comment.get("body")
+        )
+
+        # Use the first comment for other fields since they should be the same for the thread
+        first_comment = comments[0]
+
+        # Find the corresponding thread to get additional metadata
+        corresponding_thread = None
+        for thread in review_threads:
+            if thread.get("id") == thread_id:
+                corresponding_thread = thread
+                break
+
+        if corresponding_thread and aggregated_text:
+            reference_review_comment = ReferenceReviewComment(
+                text=aggregated_text,
+                path=first_comment.get("path", ""),
+                diff_hunk=first_comment.get("diffHunk"),
+                line=first_comment.get("line"),
+                start_line=first_comment.get("startLine"),
+                original_line=first_comment.get("originalLine"),
+                original_start_line=first_comment.get("originalStartLine"),
+            )
+            reference_review_comments.append(reference_review_comment)
 
     return reference_review_comments
 

@@ -66,16 +66,20 @@ class CodeReviewTaskMetadata:
 class ReferenceReviewComment:
     """Schema for reference review comment instances."""
 
-    body: str
-
-    created_at: str
-    updated_at: str
+    text: str
+    """The text of the review comment"""
     path: str
-    diff_hunk: str
-    line: int
-    start_line: int
-    original_line: int
-    original_start_line: int
+    """The path of the review comment"""
+    diff_hunk: str | None
+    """The diff hunk of the review comment"""
+    line: int | None
+    """The line number of the review comment"""
+    start_line: int | None
+    """The start line number of the review comment"""
+    original_line: int | None
+    """The original line number of the review comment"""
+    original_start_line: int | None
+    """The original start line number of the review comment"""
 
 
 @dataclass_json
@@ -86,7 +90,6 @@ class CommitToReview:
     head_commit: str
     head_commit_message: str
     patch_to_review: str
-    reference_review_comments: list[ReferenceReviewComment]
 
 
 @dataclass_json
@@ -118,6 +121,8 @@ class CodeReviewTaskInstance:
     """The commit hash of the repository representing the HEAD of the repository before the solution PR is applied."""
     commit_to_review: CommitToReview
     """The commit to review of the pull request"""
+    reference_review_comments: list[ReferenceReviewComment]
+    """The reference review comments of the commit to review"""
     merged_commit: str
     """The merged commit of the pull request"""
     merged_patch: str
