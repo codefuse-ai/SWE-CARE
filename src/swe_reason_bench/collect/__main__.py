@@ -192,6 +192,7 @@ def main():
                     **common_kwargs,
                 )
             case "evaluate_commits":
+                common_kwargs.pop("tokens")
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     **common_kwargs,
