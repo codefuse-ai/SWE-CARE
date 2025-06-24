@@ -6,8 +6,10 @@ from typing import Any, Optional
 import requests
 from loguru import logger
 from tenacity import (
+    after_log,
     before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
@@ -24,7 +26,12 @@ class MaxNodeLimitExceededError(Exception):
 class GitHubAPI:
     """GitHub API client with rate limiting, retries, and proper error handling."""
 
-    def __init__(self, max_retries: int = 3, tokens: Optional[list[str]] = None):
+    def __init__(
+        self,
+        max_retries: int = 5,
+        timeout: int = 60,
+        tokens: Optional[list[str]] = None,
+    ):
         """
         Initialize GitHub API client.
 
@@ -34,6 +41,7 @@ class GitHubAPI:
         """
         self.max_retries = max_retries
         self.tokens = tokens or []
+        self.timeout = timeout
         self.graphql_endpoint = "https://api.github.com/graphql"
         self.rest_api_base = "https://api.github.com"
 
@@ -72,25 +80,18 @@ class GitHubAPI:
 
     def _retry_wrapper(self, func):
         """Create a retry wrapper using the instance's max_retries setting."""
-
-        def should_retry(exception):
-            # Don't retry on 401 Client Error (authentication issues)
-            if isinstance(exception, requests.exceptions.HTTPError):
-                if hasattr(exception, "response") and exception.response is not None:
-                    if exception.response.status_code == 401:
-                        return False
-            # Retry on other RequestException and HTTPError types
-            return isinstance(
-                exception,
-                (requests.exceptions.RequestException, requests.exceptions.HTTPError),
-            )
-
         return retry(
             reraise=True,
             stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1, min=4, max=10),
-            retry=should_retry,
+            wait=wait_exponential(multiplier=2, min=4, max=60),
+            retry=retry_if_exception_type(
+                (
+                    requests.exceptions.RequestException,
+                    requests.exceptions.HTTPError,
+                )
+            ),
             before_sleep=before_sleep_log(logger, "WARNING"),
+            after=after_log(logger, "WARNING"),
         )(func)
 
     def execute_graphql_query(
@@ -122,7 +123,7 @@ class GitHubAPI:
                 self.graphql_endpoint,
                 headers=headers,
                 data=json.dumps(payload),
-                timeout=30,
+                timeout=self.timeout,
             )
             response.raise_for_status()
 
@@ -150,7 +151,6 @@ class GitHubAPI:
         method: str = "GET",
         params: Optional[dict[str, Any]] = None,
         data: Optional[dict[str, Any]] = None,
-        timeout: int = 30,
     ) -> requests.Response:
         """
         Call GitHub REST API endpoint with retry mechanism.
@@ -183,7 +183,7 @@ class GitHubAPI:
                 headers=headers,
                 params=params,
                 json=data,
-                timeout=timeout,
+                timeout=self.timeout,
             )
             response.raise_for_status()
 
@@ -231,7 +231,7 @@ class GitHubAPI:
 
             headers = self._get_headers(content_type="text/plain")
 
-            response = requests.get(patch_url, headers=headers, timeout=30)
+            response = requests.get(patch_url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
             # Handle rate limiting

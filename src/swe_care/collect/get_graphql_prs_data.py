@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from loguru import logger
 from tqdm import tqdm
@@ -959,24 +959,24 @@ def get_repo_pr_data(
     repo: str,
     tokens: Optional[list[str]] = None,
     max_number: int = 10,
-) -> list[dict]:
+) -> Iterator[dict]:
     """
-    Execute GraphQL query for a given repo and return crawled PR data with complete pagination.
+    Execute GraphQL query for a given repo and yield crawled PR data with complete pagination.
 
     This function fetches all nested data (labels, commits, reviews, review comments,
     review threads, thread comments, closing issues, and issue labels) for each PR using
     efficient multi-level pagination. It automatically handles GitHub's node limits by
     reducing page sizes when needed.
 
-    Only returns PRs that have at least 1 closing issues reference.
+    Only yields PRs that have at least 1 closing issues reference.
 
     Args:
         repo: Repository in format 'owner/repo'
         tokens: Optional list of GitHub tokens for API requests
         max_number: Maximum number of PRs to fetch
 
-    Returns:
-        List of dictionaries containing complete PR data with all nested information,
+    Yields:
+        Dictionaries containing complete PR data with all nested information,
         filtered to include only PRs with closing issues references. Each closing issue
         includes all of its labels and comments with complete pagination. Each review thread
         includes all of its comments with complete pagination.
@@ -990,9 +990,9 @@ def get_repo_pr_data(
     # Create GitHub API instance
     github_api = GitHubAPI(tokens=tokens)
 
-    all_prs = []
     pr_cursor = None
     current_page_size = min(max_number, 20)  # Start with conservative page size
+    total_yielded = 0
 
     while True:
         variables = {
@@ -1029,10 +1029,9 @@ def get_repo_pr_data(
             if not prs:
                 raise ValueError(f"No more PRs found for {repo}")
 
-            # Fetch complete data for each PR (including all nested paginated data)
-            complete_prs = []
+            # Process and yield each PR (including all nested paginated data)
             logger.info(
-                f"Fetching complete data for {len(prs)} PRs from page (page size: {current_page_size})..."
+                f"Processing {len(prs)} PRs from page (page size: {current_page_size})..."
             )
             for i, pr in enumerate(prs, 1):
                 try:
@@ -1052,29 +1051,31 @@ def get_repo_pr_data(
                         continue
 
                     complete_pr = fetch_complete_pr_data(pr, github_api)
-                    complete_prs.append(complete_pr)
+                    yield complete_pr
+                    total_yielded += 1
+
+                    # Check if we've reached the maximum number of PRs
+                    if total_yielded >= max_number:
+                        logger.info(
+                            f"Reached maximum number of PRs ({max_number}) for {repo}"
+                        )
+                        return
+
                 except Exception as e:
                     logger.warning(
                         f"✗ Warning: Failed to fetch complete data for PR #{pr.get('number', 'unknown')}: {e}"
                     )
                     # For error cases, still check if original PR has closing issues
                     if pr.get("closingIssuesReferences", {}).get("totalCount", 0) > 0:
-                        complete_prs.append(pr)
+                        yield pr
+                        total_yielded += 1
 
-            all_prs.extend(complete_prs)
-
-            # Log filtering statistics
-            if complete_prs:
-                logger.info(
-                    f"  → Included {len(complete_prs)} PRs with closing issues from this page"
-                )
-            else:
-                logger.info("  → No PRs with closing issues found on this page")
-
-            # Check if we've reached the maximum number of PRs
-            if len(all_prs) >= max_number:
-                # all_prs = all_prs[:max_number]  # Trim to exact max_number
-                break
+                        # Check if we've reached the maximum number of PRs
+                        if total_yielded >= max_number:
+                            logger.info(
+                                f"Reached maximum number of PRs ({max_number}) for {repo}"
+                            )
+                            return
 
             # Check if there are more pages
             page_info = pr_data.get("pageInfo", {})
@@ -1087,8 +1088,7 @@ def get_repo_pr_data(
             logger.error(f"Error fetching PR data for {repo}: {e}")
             break
 
-    logger.info(f"Collected {len(all_prs)} PRs with closing issues for {repo}")
-    return all_prs
+    logger.info(f"Collected {total_yielded} PRs with closing issues for {repo}")
 
 
 def get_graphql_prs_data(
@@ -1140,26 +1140,27 @@ def get_graphql_prs_data(
                         logger.warning(f"No 'name' field found in line: {line}")
                         continue
 
-                    # Get PR data for this repository
-                    pr_data = get_repo_pr_data(
-                        repo=repo_name,
-                        tokens=tokens,
-                        max_number=max_number,
+                    # Create output filename
+                    org, repo_short = repo_name.split("/", 1)
+                    output_file = (
+                        output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
                     )
 
-                    if pr_data:
-                        # Create output filename
-                        org, repo_short = repo_name.split("/", 1)
-                        output_file = (
-                            output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
-                        )
+                    # Process PR data for this repository and write immediately
+                    pr_count = 0
+                    with output_file.open("w") as out_f:
+                        for pr in get_repo_pr_data(
+                            repo=repo_name,
+                            tokens=tokens,
+                            max_number=max_number,
+                        ):
+                            out_f.write(json.dumps(pr) + "\n")
+                            pr_count += 1
 
-                        # Save PR data to file
-                        with output_file.open("w") as out_f:
-                            for pr in pr_data:
-                                out_f.write(json.dumps(pr) + "\n")
-
-                        logger.info(f"Saved {len(pr_data)} PRs to {output_file}")
+                    if pr_count > 0:
+                        logger.info(f"Saved {pr_count} PRs to {output_file}")
+                    else:
+                        logger.info(f"No PRs with closing issues found for {repo_name}")
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Error parsing JSON line: {line}, error: {e}")
@@ -1170,23 +1171,25 @@ def get_graphql_prs_data(
 
     elif repo:
         # Process single repository
-        pr_data = get_repo_pr_data(
-            repo=repo,
-            tokens=tokens,
-            max_number=max_number,
-        )
+        # Create output filename
+        org, repo_short = repo.split("/", 1)
+        output_file = output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
 
-        if pr_data:
-            # Create output filename
-            org, repo_short = repo.split("/", 1)
-            output_file = output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
+        # Process PR data and write immediately
+        pr_count = 0
+        with output_file.open("w") as out_f:
+            for pr in get_repo_pr_data(
+                repo=repo,
+                tokens=tokens,
+                max_number=max_number,
+            ):
+                out_f.write(json.dumps(pr) + "\n")
+                pr_count += 1
 
-            # Save PR data to file
-            with output_file.open("w") as out_f:
-                for pr in pr_data:
-                    out_f.write(json.dumps(pr) + "\n")
-
-            logger.info(f"Saved {len(pr_data)} PRs to {output_file}")
+        if pr_count > 0:
+            logger.info(f"Saved {pr_count} PRs to {output_file}")
+        else:
+            logger.info(f"No PRs with closing issues found for {repo}")
 
     else:
         raise ValueError("Either repo_file or repo must be specified")
