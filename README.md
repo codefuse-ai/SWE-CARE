@@ -62,7 +62,7 @@ Here's an example of the command-line usage for each step:
     python -m swe_care.collect get_top_repos \
         --language "Python" \
         --top-n 100 \
-        --output-dir "results/" \
+        --output-dir "results/top_repos" \
         --tokens "your_github_pat"
     ```
 
@@ -71,7 +71,7 @@ Here's an example of the command-line usage for each step:
     ```bash
     python -m swe_care.collect get_graphql_prs_data \
         --repo "<repo_owner>/<repo_name>" \
-        --output-dir "results/" \
+        --output-dir "results/graphql_prs_data" \
         --tokens "your_github_pat" \
         --max-number 20
     ```
@@ -80,17 +80,17 @@ Here's an example of the command-line usage for each step:
 
     ```bash
     python -m swe_care.collect evaluate_commits \
-        --graphql-prs-data-file "results/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
-        --output-dir "./results"
+        --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
+        --output-dir "./results/evaluate_commits"
     ```
 
 4. **Build Code Review Dataset**: Build the final dataset for the code review task.
 
     ```bash
     python -m swe_care.collect build_code_review_dataset \
-        --graphql-prs-data-file "results/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
-        --pr-commits-evaluation-file "results/<repo_owner>__<repo_name>_pr_commits_evaluation.jsonl" \
-        --output-dir "./results" \
+        --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
+        --pr-commits-evaluation-file "results/evaluate_commits/<repo_owner>__<repo_name>_pr_commits_evaluation.jsonl" \
+        --output-dir "./results/dataset" \
         --tokens "your_github_pat"
     ```
 
@@ -106,7 +106,7 @@ Here's an example of how to run the evaluation:
 python -m swe_care.harness code_review_eval \
     --dataset-file "results/code_review_task_instances.jsonl" \
     --predictions-path "results/code_review_predictions.jsonl" \
-    --output-dir "./results" \
+    --output-dir "./results/report" \
     --evaluator "llm_evaluator" \
     --llm-model "Your-LLM-Model" \
     --llm-base-url "https://your.llm.provider/v1"
