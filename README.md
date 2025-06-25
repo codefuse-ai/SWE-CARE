@@ -103,6 +103,7 @@ The evaluation harness is used to assess model predictions on the code review ta
 Here's an example of how to run the evaluation:
 
 ```bash
+export OPENAI_API_KEY=<your_openai_api_key>
 python -m swe_care.harness code_review_eval \
     --dataset-file "results/code_review_task_instances.jsonl" \
     --predictions-path "results/code_review_predictions.jsonl" \
