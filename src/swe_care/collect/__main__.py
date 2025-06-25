@@ -4,34 +4,32 @@ from pathlib import Path
 
 from loguru import logger
 
-from swe_care.collect.build_code_review_dataset import (
-    build_code_review_dataset,
-)
-from swe_care.collect.evaluate_commits import (
-    evaluate_commits,
-)
-from swe_care.collect.get_graphql_prs_data import (
-    get_graphql_prs_data,
-)
+import swe_care.collect.build_code_review_dataset
+import swe_care.collect.evaluate_commits
+import swe_care.collect.get_graphql_prs_data
+import swe_care.collect.get_top_repos
+from swe_care.collect.build_code_review_dataset import build_code_review_dataset
+from swe_care.collect.evaluate_commits import evaluate_commits
+from swe_care.collect.get_graphql_prs_data import get_graphql_prs_data
 from swe_care.collect.get_top_repos import get_top_repos
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
     "get_top_repos": {
         "function": get_top_repos,
-        "help": "Get top repositories for a given language",
+        "help": swe_care.collect.get_top_repos.__doc__,
     },
     "get_graphql_prs_data": {
         "function": get_graphql_prs_data,
-        "help": "Get PR data from GitHub GraphQL API",
+        "help": swe_care.collect.get_graphql_prs_data.__doc__,
     },
     "evaluate_commits": {
         "function": evaluate_commits,
-        "help": "Evaluate commits in PRs using heuristic rules",
+        "help": swe_care.collect.evaluate_commits.__doc__,
     },
     "build_code_review_dataset": {
         "function": build_code_review_dataset,
-        "help": "Build code review task dataset",
+        "help": swe_care.collect.build_code_review_dataset.__doc__,
     },
 }
 
@@ -93,7 +91,7 @@ def get_args():
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
                 parents=[global_parser],
-                description="Get top repositories for a given language",
+                description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
                 "--language",
@@ -112,7 +110,7 @@ def get_args():
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
                 parents=[global_parser],
-                description="Get PR data from GitHub GraphQL API",
+                description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             repo_group = sub_parser.add_mutually_exclusive_group(required=True)
             repo_group.add_argument(
@@ -150,7 +148,7 @@ def get_args():
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
                 parents=[global_parser],
-                description="Evaluate commits in PRs using heuristic rules",
+                description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
@@ -162,7 +160,7 @@ def get_args():
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
                 parents=[global_parser],
-                description="Build code review task dataset",
+                description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
                 "--graphql-prs-data-file",

@@ -5,13 +5,14 @@ from pathlib import Path
 from loguru import logger
 from openai import OpenAI
 
+import swe_care.harness.code_review_eval
 from swe_care.harness.code_review_eval import EvaluatorType, code_review_eval
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
     "code_review_eval": {
         "function": code_review_eval,
-        "help": "Run evaluation on code review predictions",
+        "help": swe_care.harness.code_review_eval.__doc__,
     },
 }
 
@@ -66,7 +67,7 @@ def get_args():
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.harness {subcommand}",
                 parents=[global_parser],
-                description="Run evaluation on code review predictions",
+                description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
                 "--dataset-file",

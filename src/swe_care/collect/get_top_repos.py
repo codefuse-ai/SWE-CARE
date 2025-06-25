@@ -1,3 +1,7 @@
+"""
+Fetch top repositories for a given language and save to JSONL file.
+"""
+
 import json
 from pathlib import Path
 from typing import Optional
