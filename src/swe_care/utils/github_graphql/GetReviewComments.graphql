@@ -1,0 +1,34 @@
+query GetReviewComments($reviewId: ID!, $cursor: String) {
+  node(id: $reviewId) {
+    ... on PullRequestReview {
+      comments(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          author {
+            login
+          }
+          body
+          createdAt
+          updatedAt
+          path
+          diffHunk
+          line
+          startLine
+          originalLine
+          originalStartLine
+          replyTo {
+            id
+          }
+          originalCommit {
+            oid
+          }
+        }
+      }
+    }
+  }
+}

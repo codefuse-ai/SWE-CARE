@@ -1,0 +1,16 @@
+query GetLabels($prId: ID!, $cursor: String) {
+  node(id: $prId) {
+    ... on PullRequest {
+      labels(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          name
+        }
+      }
+    }
+  }
+}

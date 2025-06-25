@@ -1,0 +1,37 @@
+query GetCommits($prId: ID!, $cursor: String) {
+  node(id: $prId) {
+    ... on PullRequest {
+      commits(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          commit {
+            oid
+            message
+            changedFilesIfAvailable
+            authoredDate
+            author {
+              user {
+                login
+              }
+            }
+            committedDate
+            committer {
+              user {
+                login
+              }
+            }
+            parents(first: 2) {
+              nodes {
+                oid
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

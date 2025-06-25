@@ -1,0 +1,54 @@
+query GetReviews($prId: ID!, $cursor: String) {
+  node(id: $prId) {
+    ... on PullRequest {
+      reviews(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          author {
+            login
+          }
+          state
+          body
+          submittedAt
+          updatedAt
+          commit {
+            oid
+          }
+          comments(first: 100) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              author {
+                login
+              }
+              body
+              createdAt
+              updatedAt
+              path
+              diffHunk
+              line
+              startLine
+              originalLine
+              originalStartLine
+              replyTo {
+                id
+              }
+              originalCommit {
+                oid
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

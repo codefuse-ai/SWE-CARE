@@ -1,0 +1,188 @@
+query GetSpecificPullRequest($owner: String!, $name: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $name) {
+    nameWithOwner
+    pullRequest(
+      number: $prNumber
+    ) {
+      id
+      title
+      body
+      number
+      url
+      author {
+        login
+      }
+      createdAt
+      mergedAt
+      mergedBy {
+        login
+      }
+      baseRefOid
+      baseRefName
+      headRefOid
+      headRefName
+      changedFiles
+      labels(first: 10) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          name
+        }
+      }
+      commits(first: 10) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          commit {
+            oid
+            message
+            changedFilesIfAvailable
+            authoredDate
+            author {
+              user {
+                login
+              }
+            }
+            committedDate
+            committer {
+              user {
+                login
+              }
+            }
+            parents(first: 2) {
+              nodes {
+                oid
+              }
+            }
+          }
+        }
+      }
+      reviews(first: 10) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          author {
+            login
+          }
+          state
+          body
+          submittedAt
+          updatedAt
+          commit {
+            oid
+          }
+          comments(first: 10) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              author {
+                login
+              }
+              body
+              createdAt
+              updatedAt
+              path
+              diffHunk
+              line
+              startLine
+              originalLine
+              originalStartLine
+              replyTo {
+                id
+              }
+              originalCommit {
+                oid
+              }
+            }
+          }
+        }
+      }
+      reviewThreads(first: 10) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          isCollapsed
+          path
+          startLine
+          originalLine
+          diffSide
+          startDiffSide
+          resolvedBy {
+            login
+          }
+          comments(first: 10) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+            }
+          }
+        }
+      }
+      closingIssuesReferences(first: 10) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          number
+          url
+          title
+          body
+          state
+          labels(first: 10) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              name
+            }
+          }
+          comments(first: 10) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              id
+              author {
+                login
+              }
+              body
+              createdAt
+              updatedAt
+            }
+          }
+        }
+      }
+    }
+  }
+}

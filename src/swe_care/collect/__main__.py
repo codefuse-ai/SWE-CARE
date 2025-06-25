@@ -116,22 +116,35 @@ def get_args():
             )
             repo_group = sub_parser.add_mutually_exclusive_group(required=True)
             repo_group.add_argument(
-                "--repo-file", type=Path, help="Path to repository file"
+                "--repo-file",
+                type=Path,
+                help="Path to repository file",
+                default=None,
             )
             repo_group.add_argument(
-                "--repo", type=str, help="Repository in format 'owner/repo'"
+                "--repo",
+                type=str,
+                help="Repository in format 'owner/repo'",
+                default=None,
             )
             sub_parser.add_argument(
                 "--max-number",
                 type=int,
-                default=10,
-                help="Maximum number of PRs to fetch per page",
+                default=None,
+                help="Maximum number of PRs to fetch per page (ignored when specific_prs is provided). If not provided, all PRs will be fetched.",
             )
             sub_parser.add_argument(
                 "--job",
                 type=int,
                 default=2,
                 help="Number of concurrent jobs/threads to use (default: 2)",
+            )
+            sub_parser.add_argument(
+                "--specific-prs",
+                type=int,
+                nargs="*",
+                default=None,
+                help="Specific PR numbers to fetch (if not specified, fetches all PRs with closing issues)",
             )
         case "evaluate_commits":
             sub_parser = argparse.ArgumentParser(
@@ -197,10 +210,11 @@ def main():
                 function(language=args.language, top_n=args.top_n, **common_kwargs)
             case "get_graphql_prs_data":
                 function(
-                    repo_file=getattr(args, "repo_file", None),
-                    repo=getattr(args, "repo", None),
-                    max_number=getattr(args, "max_number", 10),
-                    job=getattr(args, "job", 2),
+                    repo_file=args.repo_file,
+                    repo=args.repo,
+                    max_number=args.max_number,
+                    specific_prs=args.specific_prs,
+                    job=args.job,
                     **common_kwargs,
                 )
             case "evaluate_commits":
@@ -214,7 +228,7 @@ def main():
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     pr_commits_evaluation_file=args.pr_commits_evaluation_file,
-                    skip_existing=getattr(args, "skip_existing", False),
+                    skip_existing=args.skip_existing,
                     **common_kwargs,
                 )
     else:

@@ -415,8 +415,8 @@ class CommitEvaluator:
 
 
 def evaluate_commits(
-    graphql_prs_data_file: Path,
-    output_dir: Path,
+    graphql_prs_data_file: Path | str,
+    output_dir: Path | str,
 ) -> None:
     """
     Evaluate commits in PRs using heuristic rules.
@@ -425,6 +425,10 @@ def evaluate_commits(
         graphql_prs_data_file: Path to the GraphQL PRs data file
         output_dir: Directory to save evaluation results
     """
+    if isinstance(graphql_prs_data_file, str):
+        graphql_prs_data_file = Path(graphql_prs_data_file)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     logger.info(f"Starting commit evaluation from {graphql_prs_data_file}")
 
     evaluator = CommitEvaluator()

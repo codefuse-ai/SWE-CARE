@@ -1,0 +1,31 @@
+query GetClosingIssues($prId: ID!, $cursor: String) {
+  node(id: $prId) {
+    ... on PullRequest {
+      closingIssuesReferences(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          number
+          url
+          title
+          body
+          state
+          labels(first: 10) {
+            totalCount
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+            nodes {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}

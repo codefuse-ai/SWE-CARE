@@ -59,8 +59,10 @@ def load_evaluator(
     return evaluator_cls(**kwargs)
 
 
-def load_dataset(dataset_file: Path) -> list[CodeReviewTaskInstance]:
+def load_dataset(dataset_file: Path | str) -> list[CodeReviewTaskInstance]:
     """Load the dataset instances from the JSONL file."""
+    if isinstance(dataset_file, str):
+        dataset_file = Path(dataset_file)
     logger.info("Loading dataset instances...")
 
     if not dataset_file.exists():
@@ -81,8 +83,10 @@ def load_dataset(dataset_file: Path) -> list[CodeReviewTaskInstance]:
     return dataset_instances
 
 
-def load_predictions(predictions_path: Path) -> list[CodeReviewPrediction]:
+def load_predictions(predictions_path: Path | str) -> list[CodeReviewPrediction]:
     """Load the predictions from the JSONL file."""
+    if isinstance(predictions_path, str):
+        predictions_path = Path(predictions_path)
     logger.info("Loading predictions...")
 
     if not predictions_path.exists():
@@ -103,9 +107,9 @@ def load_predictions(predictions_path: Path) -> list[CodeReviewPrediction]:
 
 
 def code_review_eval(
-    dataset_file: Path,
-    predictions_path: Path,
-    output_dir: Path,
+    dataset_file: Path | str,
+    predictions_path: Path | str,
+    output_dir: Path | str,
     evaluator_types: list[EvaluatorType],
     llm_client: Optional[OpenAI] = None,
     llm_model: Optional[str] = None,
@@ -118,6 +122,12 @@ def code_review_eval(
         predictions_path: Path to predictions file or directory containing predictions
         output_dir: Directory where the final_report.json will be saved
     """
+    if isinstance(dataset_file, str):
+        dataset_file = Path(dataset_file)
+    if isinstance(predictions_path, str):
+        predictions_path = Path(predictions_path)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     instances = load_dataset(dataset_file)
     predictions = load_predictions(predictions_path)
 

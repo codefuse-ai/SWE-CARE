@@ -8,7 +8,10 @@ from swe_care.utils.github import GitHubAPI
 
 
 def get_top_repos(
-    language: str, top_n: int, output_dir: Path, tokens: Optional[list[str]] = None
+    language: str,
+    top_n: int,
+    output_dir: Path | str,
+    tokens: Optional[list[str]] = None,
 ) -> None:
     """
     Fetch top repositories for a given language and save to JSONL file.
@@ -19,6 +22,8 @@ def get_top_repos(
         output_dir: Directory to save the output file
         tokens: Optional list of GitHub tokens for API requests
     """
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"repos_top_{top_n}_{language}.jsonl"
 

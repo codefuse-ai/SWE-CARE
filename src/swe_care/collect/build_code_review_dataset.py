@@ -43,9 +43,9 @@ def select_best_commit_to_review(
 
 
 def build_code_review_dataset(
-    graphql_prs_data_file: Path,
-    pr_commits_evaluation_file: Path,
-    output_dir: Path = None,
+    graphql_prs_data_file: Path | str,
+    pr_commits_evaluation_file: Path | str,
+    output_dir: Path | str = None,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
 ) -> None:
@@ -60,6 +60,12 @@ def build_code_review_dataset(
         skip_existing: If True, skip processing existing instance_id in the output file.
                       If False, replace existing instance_id data.
     """
+    if isinstance(graphql_prs_data_file, str):
+        graphql_prs_data_file = Path(graphql_prs_data_file)
+    if isinstance(pr_commits_evaluation_file, str):
+        pr_commits_evaluation_file = Path(pr_commits_evaluation_file)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     if output_dir is None:
         raise ValueError("output_dir is required")
 

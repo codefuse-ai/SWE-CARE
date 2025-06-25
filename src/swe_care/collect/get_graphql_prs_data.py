@@ -1,3 +1,14 @@
+"""
+This script uses GraphQL queries to fetch merged pull requests from a GitHub repository along with their comprehensive metadata, including:
+Basic PR info, labels, commits, reviews, review comments, review threads, thread comments, and linked issues that the PR closes.
+
+It specifically targets merged PRs ordered by creation date (newest first).
+
+Note:
+- The script filters to only include PRs that have at least 1 closing issues reference.
+- The script handles pagination for all nested data.
+"""
+
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -7,519 +18,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from swe_care.utils.github import GitHubAPI, MaxNodeLimitExceededError
-
-# GitHub GraphQL API endpoint
-GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
-
-# --- GraphQL Queries ---
-# Main query for fetching PRs with first page of nested data
-"""
-This GraphQL query fetches merged pull requests from a GitHub repository along with their comprehensive metadata, including:
-Basic PR info, labels, commits, reviews, review comments, review threads, thread comments, and linked issues that the PR closes.
-
-It specifically targets merged PRs ordered by creation date (newest first).
-Note: The script filters to only include PRs that have at least 1 closing issues reference.
-"""
-
-MAIN_GRAPHQL_QUERY = """
-query GetMergedPullRequests($owner: String!, $name: String!, $prCursor: String, $maxNumber: Int!) {
-  repository(owner: $owner, name: $name) {
-    nameWithOwner
-    pullRequests(states: [MERGED], first: $maxNumber, after: $prCursor, orderBy: {field: CREATED_AT, direction: DESC}) {
-      totalCount
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
-        id
-        title
-        body
-        number
-        url
-        author {
-          login
-        }
-        createdAt
-        mergedAt
-        mergedBy {
-          login
-        }
-        baseRefOid
-        baseRefName
-        headRefOid
-        headRefName
-        changedFiles
-
-        labels(first: 10) {
-          totalCount
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            name
-          }
-        }
-
-        commits(first: 10) {
-          totalCount
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            commit {
-              oid
-              message
-              changedFilesIfAvailable
-              authoredDate
-              author {
-                user {
-                  login
-                }
-              }
-              committedDate
-              committer {
-                user {
-                  login
-                }
-              }
-              parents(first: 2) {
-                nodes {
-                  oid
-                }
-              }
-            }
-          }
-        }
-
-        reviews(first: 10) {
-          totalCount
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            id
-            author {
-              login
-            }
-            state
-            body
-            submittedAt
-            updatedAt
-            commit {
-              oid
-            }
-            comments(first: 10) {
-              totalCount
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              nodes {
-                id
-                author {
-                  login
-                }
-                body
-                createdAt
-                updatedAt
-                path
-                diffHunk
-                line
-                startLine
-                originalLine
-                originalStartLine
-                replyTo {
-                    id
-                }
-                originalCommit {
-                    oid
-                }
-              }
-            }
-          }
-        }
-
-        reviewThreads(first: 10) {
-          totalCount
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            id
-            isResolved
-            isOutdated
-            isCollapsed
-            path
-            startLine
-            originalLine
-            diffSide
-            startDiffSide
-            resolvedBy {
-              login
-            }
-            comments(first: 10){
-              totalCount
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              nodes {
-                id
-              }
-            }
-          }
-        }
-
-        closingIssuesReferences(first: 10) {
-          totalCount
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-          nodes {
-            id
-            number
-            url
-            title
-            body
-            state
-            labels(first: 10) {
-              totalCount
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              nodes {
-                name
-              }
-            }
-            comments(first: 10) {
-              totalCount
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
-              nodes {
-                id
-                author {
-                  login
-                }
-                body
-                createdAt
-                updatedAt
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of labels
-LABELS_QUERY = """
-query GetLabels($prId: ID!, $cursor: String) {
-  node(id: $prId) {
-    ... on PullRequest {
-      labels(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          name
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of commits
-COMMITS_QUERY = """
-query GetCommits($prId: ID!, $cursor: String) {
-  node(id: $prId) {
-    ... on PullRequest {
-      commits(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          commit {
-            oid
-            message
-            changedFilesIfAvailable
-            authoredDate
-            author {
-              user {
-                login
-              }
-            }
-            committedDate
-            committer {
-              user {
-                login
-              }
-            }
-            parents(first: 2) {
-              nodes {
-                oid
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of reviews
-REVIEWS_QUERY = """
-query GetReviews($prId: ID!, $cursor: String) {
-  node(id: $prId) {
-    ... on PullRequest {
-      reviews(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-          author {
-            login
-          }
-          state
-          body
-          submittedAt
-          updatedAt
-          commit {
-            oid
-          }
-          comments(first: 100) {
-            totalCount
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            nodes {
-              id
-              author {
-                login
-              }
-              body
-              createdAt
-              updatedAt
-              path
-              diffHunk
-              line
-              startLine
-              originalLine
-              originalStartLine
-              replyTo {
-                id
-              }
-              originalCommit {
-                oid
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of review comments
-REVIEW_COMMENTS_QUERY = """
-query GetReviewComments($reviewId: ID!, $cursor: String) {
-  node(id: $reviewId) {
-    ... on PullRequestReview {
-      comments(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-          author {
-            login
-          }
-          body
-          createdAt
-          updatedAt
-          path
-          diffHunk
-          line
-          startLine
-          originalLine
-          originalStartLine
-          replyTo {
-            id
-          }
-          originalCommit {
-            oid
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of closing issues references
-CLOSING_ISSUES_QUERY = """
-query GetClosingIssues($prId: ID!, $cursor: String) {
-  node(id: $prId) {
-    ... on PullRequest {
-      closingIssuesReferences(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-          number
-          url
-          title
-          body
-          state
-          labels(first: 10) {
-            totalCount
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            nodes {
-              name
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of issue labels
-ISSUE_LABELS_QUERY = """
-query GetIssueLabels($issueId: ID!, $cursor: String) {
-  node(id: $issueId) {
-    ... on Issue {
-      labels(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          name
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of issue comments
-ISSUE_COMMENTS_QUERY = """
-query GetIssueComments($issueId: ID!, $cursor: String) {
-  node(id: $issueId) {
-    ... on Issue {
-      comments(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-          author {
-            login
-          }
-          body
-          createdAt
-          updatedAt
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of review threads
-REVIEW_THREADS_QUERY = """
-query GetReviewThreads($prId: ID!, $cursor: String) {
-  node(id: $prId) {
-    ... on PullRequest {
-      reviewThreads(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-          isResolved
-          isOutdated
-          isCollapsed
-          path
-          startLine
-          originalLine
-          diffSide
-          startDiffSide
-          resolvedBy {
-            login
-          }
-          comments(first: 10) {
-            totalCount
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-            nodes {
-              id
-            }
-          }
-        }
-      }
-    }
-  }
-}
-"""
-
-# Query for fetching additional pages of thread comments
-THREAD_COMMENTS_QUERY = """
-query GetThreadComments($threadId: ID!, $cursor: String) {
-  node(id: $threadId) {
-    ... on PullRequestReviewThread {
-      comments(first: 100, after: $cursor) {
-        totalCount
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
-        nodes {
-          id
-        }
-      }
-    }
-  }
-}
-"""
+from swe_care.utils.github_graphql import GRAPHQL_QUERIES
 
 
 def fetch_all_labels(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> dict:
@@ -531,7 +30,7 @@ def fetch_all_labels(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> d
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(LABELS_QUERY, variables)
+        result = github_api.execute_graphql_query(GRAPHQL_QUERIES["labels"], variables)
         page_data = result.get("data", {}).get("node", {}).get("labels", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -558,7 +57,7 @@ def fetch_all_commits(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> 
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(COMMITS_QUERY, variables)
+        result = github_api.execute_graphql_query(GRAPHQL_QUERIES["commits"], variables)
         page_data = result.get("data", {}).get("node", {}).get("commits", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -587,7 +86,9 @@ def fetch_all_review_comments(
 
     while has_next_page and cursor:
         variables = {"reviewId": review_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(REVIEW_COMMENTS_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["review_comments"], variables
+        )
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -623,7 +124,7 @@ def fetch_all_reviews(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> 
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(REVIEWS_QUERY, variables)
+        result = github_api.execute_graphql_query(GRAPHQL_QUERIES["reviews"], variables)
         page_data = result.get("data", {}).get("node", {}).get("reviews", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -659,7 +160,9 @@ def fetch_all_issue_labels(
 
     while has_next_page and cursor:
         variables = {"issueId": issue_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(ISSUE_LABELS_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["issue_labels"], variables
+        )
         page_data = result.get("data", {}).get("node", {}).get("labels", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -688,7 +191,9 @@ def fetch_all_issue_comments(
 
     while has_next_page and cursor:
         variables = {"issueId": issue_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(ISSUE_COMMENTS_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["issue_comments"], variables
+        )
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -717,7 +222,9 @@ def fetch_all_thread_comments(
 
     while has_next_page and cursor:
         variables = {"threadId": thread_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(THREAD_COMMENTS_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["thread_comments"], variables
+        )
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -755,7 +262,9 @@ def fetch_all_review_threads(
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(REVIEW_THREADS_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["review_threads"], variables
+        )
         page_data = result.get("data", {}).get("node", {}).get("reviewThreads", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -806,7 +315,9 @@ def fetch_all_closing_issues(
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = github_api.execute_graphql_query(CLOSING_ISSUES_QUERY, variables)
+        result = github_api.execute_graphql_query(
+            GRAPHQL_QUERIES["closing_issues"], variables
+        )
         page_data = (
             result.get("data", {}).get("node", {}).get("closingIssuesReferences", {})
         )
@@ -958,7 +469,7 @@ def fetch_complete_pr_data(pr: dict, github_api: GitHubAPI) -> dict:
 def get_repo_pr_data(
     repo: str,
     tokens: Optional[list[str]] = None,
-    max_number: int = 10,
+    max_number: Optional[int] = None,
 ) -> Iterator[dict]:
     """
     Execute GraphQL query for a given repo and yield crawled PR data with complete pagination.
@@ -973,7 +484,7 @@ def get_repo_pr_data(
     Args:
         repo: Repository in format 'owner/repo'
         tokens: Optional list of GitHub tokens for API requests
-        max_number: Maximum number of PRs to fetch
+        max_number: Maximum number of PRs to fetch. If not provided, all PRs will be fetched.
 
     Yields:
         Dictionaries containing complete PR data with all nested information,
@@ -991,6 +502,11 @@ def get_repo_pr_data(
     github_api = GitHubAPI(tokens=tokens)
 
     pr_cursor = None
+
+    if max_number is None:
+        logger.info(f"max_number is not provided, fetching all PRs for {repo}")
+        max_number = float("inf")
+
     current_page_size = min(max_number, 20)  # Start with conservative page size
     total_yielded = 0
 
@@ -1003,7 +519,9 @@ def get_repo_pr_data(
         }
 
         try:
-            results = github_api.execute_graphql_query(MAIN_GRAPHQL_QUERY, variables)
+            results = github_api.execute_graphql_query(
+                GRAPHQL_QUERIES["merged_pull_requests"], variables
+            )
         except MaxNodeLimitExceededError as e:
             logger.warning(f"Max node limit exceeded for {repo}: {e}")
             if current_page_size > 1:
@@ -1091,11 +609,72 @@ def get_repo_pr_data(
     logger.info(f"Collected {total_yielded} PRs with closing issues for {repo}")
 
 
+def get_specific_prs_data(
+    repo: str,
+    pr_numbers: list[int],
+    tokens: Optional[list[str]] = None,
+) -> Iterator[dict]:
+    """
+    Fetch specific PRs by their numbers from a repository.
+
+    Args:
+        repo: Repository in format 'owner/repo'
+        pr_numbers: List of PR numbers to fetch
+        tokens: Optional list of GitHub tokens for API requests
+
+    Yields:
+        Dictionaries containing complete PR data for each specified PR
+    """
+    # Parse repo owner and name
+    if "/" not in repo:
+        raise ValueError(f"Repository must be in format 'owner/repo', got: {repo}")
+
+    repo_owner, repo_name = repo.split("/", 1)
+
+    # Create GitHub API instance
+    github_api = GitHubAPI(tokens=tokens)
+
+    logger.info(f"Fetching {len(pr_numbers)} specific PRs from {repo}")
+
+    for pr_number in pr_numbers:
+        try:
+            variables = {
+                "owner": repo_owner,
+                "name": repo_name,
+                "prNumber": pr_number,
+            }
+
+            result = github_api.execute_graphql_query(
+                GRAPHQL_QUERIES["specific_pr"], variables
+            )
+
+            # Extract PR data
+            repository_data = result.get("data", {}).get("repository")
+            if not repository_data:
+                logger.warning(f"No repository data found for {repo}")
+                continue
+
+            pr_data = repository_data.get("pullRequest")
+            if not pr_data:
+                logger.warning(f"PR #{pr_number} not found in {repo}")
+                continue
+
+            logger.info(f"  Processing PR #{pr_number} of repo {repo}")
+
+            # Fetch complete data for this PR (including all nested paginated data)
+            complete_pr = fetch_complete_pr_data(pr_data, github_api)
+            yield complete_pr
+
+        except Exception as e:
+            logger.error(f"Error fetching PR #{pr_number} from {repo}: {e}")
+
+
 def process_single_repository(
     repo_name: str,
-    output_dir: Path,
+    output_dir: Path | str,
     tokens: Optional[list[str]] = None,
-    max_number: int = 10,
+    max_number: Optional[int] = None,
+    specific_prs: Optional[list[int]] = None,
 ) -> tuple[str, int]:
     """
     Process a single repository and save PR data to file.
@@ -1104,11 +683,14 @@ def process_single_repository(
         repo_name: Repository in format 'owner/repo'
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
-        max_number: Maximum number of PRs to fetch
+        max_number: Maximum number of PRs to fetch (ignored if specific_prs is provided). If not provided, all PRs will be fetched.
+        specific_prs: Optional list of specific PR numbers to fetch
 
     Returns:
         Tuple of (repo_name, pr_count)
     """
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     try:
         # Create output filename
         org, repo_short = repo_name.split("/", 1)
@@ -1117,18 +699,34 @@ def process_single_repository(
         # Process PR data for this repository and write immediately
         pr_count = 0
         with output_file.open("w") as out_f:
-            for pr in get_repo_pr_data(
-                repo=repo_name,
-                tokens=tokens,
-                max_number=max_number,
-            ):
-                out_f.write(json.dumps(pr) + "\n")
-                pr_count += 1
+            if specific_prs:
+                # Fetch specific PRs
+                for pr in get_specific_prs_data(
+                    repo=repo_name,
+                    pr_numbers=specific_prs,
+                    tokens=tokens,
+                ):
+                    out_f.write(json.dumps(pr) + "\n")
+                    pr_count += 1
+            else:
+                # Fetch all PRs with closing issues
+                for pr in get_repo_pr_data(
+                    repo=repo_name,
+                    tokens=tokens,
+                    max_number=max_number,
+                ):
+                    out_f.write(json.dumps(pr) + "\n")
+                    pr_count += 1
 
         if pr_count > 0:
             logger.info(f"Saved {pr_count} PRs to {output_file}")
         else:
-            logger.info(f"No PRs with closing issues found for {repo_name}")
+            if specific_prs:
+                logger.info(
+                    f"No PRs found for specified numbers {specific_prs} in {repo_name}"
+                )
+            else:
+                logger.info(f"No PRs with closing issues found for {repo_name}")
 
         return repo_name, pr_count
 
@@ -1138,11 +736,12 @@ def process_single_repository(
 
 
 def get_graphql_prs_data(
-    repo_file: Optional[Path] = None,
+    repo_file: Optional[Path | str] = None,
     repo: Optional[str] = None,
-    output_dir: Path = None,
+    output_dir: Path | str = None,
     tokens: Optional[list[str]] = None,
-    max_number: int = 10,
+    max_number: Optional[int] = None,
+    specific_prs: Optional[list[int]] = None,
     job: int = 2,
 ) -> None:
     """
@@ -1150,16 +749,19 @@ def get_graphql_prs_data(
 
     Fetches all nested data including labels, commits, reviews, review comments,
     review threads, thread comments, closing issues, issue labels, and issue comments.
-    Only fetches PRs that have at least 1 closing issues reference.
+    Only fetches PRs that have at least 1 closing issues reference (when specific_prs is not provided).
 
     Args:
         repo_file: Path to repository file (output from get_top_repos)
         repo: Repository in format 'owner/repo'
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
-        max_number: Maximum number of PRs to fetch
+        max_number: Maximum number of PRs to fetch (ignored when specific_prs is provided). If not provided, all PRs will be fetched.
+        specific_prs: List of specific PR numbers to fetch. If provided, only these PRs will be fetched.
         job: Number of concurrent jobs/threads to use (default: 2)
     """
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
     if not output_dir:
         raise ValueError("output_dir is required")
 
@@ -1167,6 +769,8 @@ def get_graphql_prs_data(
 
     if repo_file:
         # Process multiple repositories from file with multi-threading
+        if isinstance(repo_file, str):
+            repo_file = Path(repo_file)
         if not repo_file.exists():
             raise FileNotFoundError(f"Repository file not found: {repo_file}")
 
@@ -1195,9 +799,14 @@ def get_graphql_prs_data(
             logger.warning("No valid repositories found in file")
             return
 
-        logger.info(
-            f"Processing {len(repo_names)} repositories with {job} concurrent jobs..."
-        )
+        if specific_prs:
+            logger.info(
+                f"Processing {len(repo_names)} repositories with {job} concurrent jobs (fetching specific PRs: {specific_prs})..."
+            )
+        else:
+            logger.info(
+                f"Processing {len(repo_names)} repositories with {job} concurrent jobs..."
+            )
 
         # Process repositories using ThreadPoolExecutor
         total_prs = 0
@@ -1207,7 +816,12 @@ def get_graphql_prs_data(
             # Submit all jobs
             future_to_repo = {
                 executor.submit(
-                    process_single_repository, repo_name, output_dir, tokens, max_number
+                    process_single_repository,
+                    repo_name,
+                    output_dir,
+                    tokens,
+                    max_number,
+                    specific_prs,
                 ): repo_name
                 for repo_name in repo_names
             }
@@ -1239,9 +853,14 @@ def get_graphql_prs_data(
         )
 
     elif repo:
-        logger.info(f"Processing single repository: {repo}, no threading needed")
+        if specific_prs:
+            logger.info(
+                f"Processing single repository: {repo} (fetching specific PRs: {specific_prs}), no threading needed"
+            )
+        else:
+            logger.info(f"Processing single repository: {repo}, no threading needed")
         repo_name, pr_count = process_single_repository(
-            repo, output_dir, tokens, max_number
+            repo, output_dir, tokens, max_number, specific_prs
         )
 
     else:

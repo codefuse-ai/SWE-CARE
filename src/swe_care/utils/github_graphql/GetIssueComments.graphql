@@ -1,0 +1,22 @@
+query GetIssueComments($issueId: ID!, $cursor: String) {
+  node(id: $issueId) {
+    ... on Issue {
+      comments(first: 100, after: $cursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          author {
+            login
+          }
+          body
+          createdAt
+          updatedAt
+        }
+      }
+    }
+  }
+}
