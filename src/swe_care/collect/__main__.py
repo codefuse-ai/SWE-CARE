@@ -127,6 +127,12 @@ def get_args():
                 default=10,
                 help="Maximum number of PRs to fetch per page",
             )
+            sub_parser.add_argument(
+                "--job",
+                type=int,
+                default=2,
+                help="Number of concurrent jobs/threads to use (default: 2)",
+            )
         case "evaluate_commits":
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
@@ -194,6 +200,7 @@ def main():
                     repo_file=getattr(args, "repo_file", None),
                     repo=getattr(args, "repo", None),
                     max_number=getattr(args, "max_number", 10),
+                    job=getattr(args, "job", 2),
                     **common_kwargs,
                 )
             case "evaluate_commits":

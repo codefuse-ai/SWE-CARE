@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -79,7 +80,6 @@ query GetMergedPullRequests($owner: String!, $name: String!, $prCursor: String, 
                 }
               }
               committedDate
-              pushedDate
               committer {
                 user {
                   login
@@ -1036,7 +1036,7 @@ def get_repo_pr_data(
             for i, pr in enumerate(prs, 1):
                 try:
                     logger.info(
-                        f"  Processing PR #{pr.get('number', 'unknown')} ({i}/{len(prs)})",
+                        f"  Processing PR #{pr.get('number', 'unknown')} of repo {repo} ({i}/{len(prs)})",
                         end=" ",
                     )
 
@@ -1091,12 +1091,59 @@ def get_repo_pr_data(
     logger.info(f"Collected {total_yielded} PRs with closing issues for {repo}")
 
 
+def process_single_repository(
+    repo_name: str,
+    output_dir: Path,
+    tokens: Optional[list[str]] = None,
+    max_number: int = 10,
+) -> tuple[str, int]:
+    """
+    Process a single repository and save PR data to file.
+
+    Args:
+        repo_name: Repository in format 'owner/repo'
+        output_dir: Directory to save the output data
+        tokens: Optional list of GitHub tokens for API requests
+        max_number: Maximum number of PRs to fetch
+
+    Returns:
+        Tuple of (repo_name, pr_count)
+    """
+    try:
+        # Create output filename
+        org, repo_short = repo_name.split("/", 1)
+        output_file = output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
+
+        # Process PR data for this repository and write immediately
+        pr_count = 0
+        with output_file.open("w") as out_f:
+            for pr in get_repo_pr_data(
+                repo=repo_name,
+                tokens=tokens,
+                max_number=max_number,
+            ):
+                out_f.write(json.dumps(pr) + "\n")
+                pr_count += 1
+
+        if pr_count > 0:
+            logger.info(f"Saved {pr_count} PRs to {output_file}")
+        else:
+            logger.info(f"No PRs with closing issues found for {repo_name}")
+
+        return repo_name, pr_count
+
+    except Exception as e:
+        logger.error(f"Error processing repository {repo_name}: {e}")
+        return repo_name, 0
+
+
 def get_graphql_prs_data(
     repo_file: Optional[Path] = None,
     repo: Optional[str] = None,
     output_dir: Path = None,
     tokens: Optional[list[str]] = None,
     max_number: int = 10,
+    job: int = 2,
 ) -> None:
     """
     Get comprehensive PR data from GitHub GraphQL API with complete pagination.
@@ -1111,6 +1158,7 @@ def get_graphql_prs_data(
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
         max_number: Maximum number of PRs to fetch
+        job: Number of concurrent jobs/threads to use (default: 2)
     """
     if not output_dir:
         raise ValueError("output_dir is required")
@@ -1118,16 +1166,14 @@ def get_graphql_prs_data(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if repo_file:
-        # Process multiple repositories from file
+        # Process multiple repositories from file with multi-threading
         if not repo_file.exists():
             raise FileNotFoundError(f"Repository file not found: {repo_file}")
 
-        # Count total lines for progress bar
+        # Read all repository names first
+        repo_names = []
         with repo_file.open("r") as f:
-            total_repos = sum(1 for _ in f)
-
-        with repo_file.open("r") as f:
-            for line in tqdm(f, total=total_repos, desc="Processing repositories"):
+            for line in f:
                 line = line.strip()
                 if not line:
                     continue
@@ -1140,56 +1186,63 @@ def get_graphql_prs_data(
                         logger.warning(f"No 'name' field found in line: {line}")
                         continue
 
-                    # Create output filename
-                    org, repo_short = repo_name.split("/", 1)
-                    output_file = (
-                        output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
-                    )
-
-                    # Process PR data for this repository and write immediately
-                    pr_count = 0
-                    with output_file.open("w") as out_f:
-                        for pr in get_repo_pr_data(
-                            repo=repo_name,
-                            tokens=tokens,
-                            max_number=max_number,
-                        ):
-                            out_f.write(json.dumps(pr) + "\n")
-                            pr_count += 1
-
-                    if pr_count > 0:
-                        logger.info(f"Saved {pr_count} PRs to {output_file}")
-                    else:
-                        logger.info(f"No PRs with closing issues found for {repo_name}")
+                    repo_names.append(repo_name)
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Error parsing JSON line: {line}, error: {e}")
-                except Exception as e:
-                    logger.error(
-                        f"Error processing repository {repo_name if 'repo_name' in locals() else 'unknown'}: {e}"
-                    )
+
+        if not repo_names:
+            logger.warning("No valid repositories found in file")
+            return
+
+        logger.info(
+            f"Processing {len(repo_names)} repositories with {job} concurrent jobs..."
+        )
+
+        # Process repositories using ThreadPoolExecutor
+        total_prs = 0
+        successful_repos = 0
+
+        with ThreadPoolExecutor(max_workers=job) as executor:
+            # Submit all jobs
+            future_to_repo = {
+                executor.submit(
+                    process_single_repository, repo_name, output_dir, tokens, max_number
+                ): repo_name
+                for repo_name in repo_names
+            }
+
+            # Process completed jobs with progress bar
+            with tqdm(total=len(repo_names), desc="Processing repositories") as pbar:
+                for future in as_completed(future_to_repo):
+                    repo_name = future_to_repo[future]
+                    try:
+                        processed_repo, pr_count = future.result()
+                        total_prs += pr_count
+                        if pr_count > 0:
+                            successful_repos += 1
+                        pbar.set_postfix(
+                            {
+                                "PRs": total_prs,
+                                "Success": f"{successful_repos}/{len(repo_names)}",
+                            }
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Repository {repo_name} generated an exception: {e}"
+                        )
+                    finally:
+                        pbar.update(1)
+
+        logger.info(
+            f"Completed processing. Total PRs collected: {total_prs} from {successful_repos}/{len(repo_names)} repositories"
+        )
 
     elif repo:
-        # Process single repository
-        # Create output filename
-        org, repo_short = repo.split("/", 1)
-        output_file = output_dir / f"{org}__{repo_short}_graphql_prs_data.jsonl"
-
-        # Process PR data and write immediately
-        pr_count = 0
-        with output_file.open("w") as out_f:
-            for pr in get_repo_pr_data(
-                repo=repo,
-                tokens=tokens,
-                max_number=max_number,
-            ):
-                out_f.write(json.dumps(pr) + "\n")
-                pr_count += 1
-
-        if pr_count > 0:
-            logger.info(f"Saved {pr_count} PRs to {output_file}")
-        else:
-            logger.info(f"No PRs with closing issues found for {repo}")
+        logger.info(f"Processing single repository: {repo}, no threading needed")
+        repo_name, pr_count = process_single_repository(
+            repo, output_dir, tokens, max_number
+        )
 
     else:
         raise ValueError("Either repo_file or repo must be specified")
