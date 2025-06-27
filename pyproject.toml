@@ -14,6 +14,7 @@ dependencies = [
     "requests[socks]>=2.31.0",
     "tenacity>=9.0.0",
     "tqdm>=4.66.0",
+    "unidiff>=0.7.5",
 ]
 
 [project.scripts]

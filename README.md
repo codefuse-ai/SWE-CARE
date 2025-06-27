@@ -96,6 +96,36 @@ Here's an example of the command-line usage for each step:
 
 You can find more details about the arguments for each script by running `python -m swe_care.collect -h`.
 
+## 🔄 Inference
+
+Before running evaluation, you can generate text datasets from the collected SWE-CARE data with different context strategies. The inference module creates datasets in the format required for LLM evaluation.
+
+Here's an example of how to generate text datasets:
+
+```bash
+python -m swe_care.inference create_code_review_text \
+    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --output-dir "results/code_review_text" \
+    --file-source "oracle" \
+    --tokens "your_github_pat"
+```
+
+### File Source Strategies
+
+The `--file-source` parameter supports different strategies for selecting context files:
+
+* **oracle**: Uses ground truth files (files that were actually changed in both the review commit and merged commit)
+* **bm25**: Uses BM25 retrieval to select relevant files (requires `--retrieval-file`)
+* **all**: Uses all available files up to a specified limit (requires `--k` parameter)
+
+### Additional Parameters
+
+* `--k`: Maximum number of files to include (used with bm25 and all strategies)
+* `--retrieval-file`: Path to BM25 retrieval results file (required for bm25 strategy)
+* `--tokens`: GitHub Personal Access Token(s) for API access
+
+The generated text dataset will contain prompts with code context, issue descriptions, patches, and review instructions formatted for LLM evaluation.
+
 ## 🚀 Evaluation
 
 The evaluation harness is used to assess model predictions on the code review task. The main script is `src/swe_care/harness/code_review_eval.py`.
