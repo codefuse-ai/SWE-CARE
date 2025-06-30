@@ -185,20 +185,62 @@ The generated predictions will be saved as JSONL files containing `CodeReviewPre
 
 The evaluation harness is used to assess model predictions on the code review task. The main script is `src/swe_care/harness/code_review_eval.py`.
 
-Here's an example of how to run the evaluation:
+### Supported Evaluators and Model Providers for Evaluation
+
+See `python -m swe_care.harness code_review_eval --help` for supported evaluators and LLM model if you want to use LLM-based evaluation.
+
+### Examples
+
+#### LLM-based Evaluation with OpenAI
 
 ```bash
 export OPENAI_API_KEY=<your_openai_api_key>
 python -m swe_care.harness code_review_eval \
     --dataset-file "results/code_review_task_instances.jsonl" \
-    --predictions-path "results/code_review_predictions.jsonl" \
-    --output-dir "./results/report" \
+    --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
+    --output-dir "./results/evaluation" \
     --evaluator "llm_evaluator" \
-    --llm-model "Your-LLM-Model" \
-    --llm-base-url "https://your.llm.provider/v1"
+    --model "gpt-4o" \
+    --model-provider "openai" \
+    --model-args "temperature=0.0"
 ```
 
-The evaluator will compare the model's generated reviews against the reference reviews in the dataset and produce evaluation metrics. The supported evaluators are defined in `src/swe_care/harness/evaluators`.
+#### Rule-based Evaluation
+
+```bash
+python -m swe_care.harness code_review_eval \
+    --dataset-file "results/code_review_task_instances.jsonl" \
+    --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
+    --output-dir "./results/evaluation" \
+    --evaluator "rule_based_evaluator"
+```
+
+#### Multiple Evaluators
+
+```bash
+export OPENAI_API_KEY=<your_openai_api_key>
+python -m swe_care.harness code_review_eval \
+    --dataset-file "results/code_review_task_instances.jsonl" \
+    --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
+    --output-dir "./results/evaluation" \
+    --evaluator "llm_evaluator" "rule_based_evaluator" \
+    --model "gpt-4o" \
+    --model-provider "openai"
+```
+
+### Parameters
+
+* `--dataset-file`: Path to the original dataset file (CodeReviewTaskInstance objects)
+* `--predictions-path`: Path to the predictions file (CodeReviewPrediction objects)
+* `--output-dir`: Directory where evaluation results will be saved
+* `--evaluator`: One or more evaluator types to use (`llm_evaluator`, `rule_based_evaluator`)
+* `--model`: Model name for LLM evaluation (required if using `llm_evaluator`)
+* `--model-provider`: Model provider for LLM evaluation (required if using `llm_evaluator`)
+* `--model-args`: Comma-separated model arguments for LLM evaluation
+
+### Output
+
+The evaluation results are saved as a JSONL file (`final_report.jsonl`) containing `CodeReviewEvaluationResult` objects with detailed metrics for each instance.
 
 ## 📜 Citation
 

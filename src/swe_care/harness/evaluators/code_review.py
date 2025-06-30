@@ -2,14 +2,13 @@ import json
 import re
 from typing import Any
 
-from openai import OpenAI
-
 from swe_care.harness.evaluators import Evaluator
 from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     ReferenceReviewComment,
 )
 from swe_care.schema.evaluation import CodeReviewPrediction
+from swe_care.utils.llm_models import BaseModelClient
 
 EVALUATION_PROMPT = """\
 Your task is to evaluate the quliaty of the code review. Below are the required fields of a standard code review:
@@ -44,8 +43,10 @@ If you cannot identify a certain field from the review, give a 0 score to all di
 class LLMEvaluator(Evaluator):
     """Evaluator for code review predictions against benchmark dataset."""
 
-    llm_client: OpenAI
-    llm_model: str
+    def __init__(self, model_client: BaseModelClient, **kwargs):
+        """Initialize the LLM evaluator with a model client."""
+        super().__init__(**kwargs)
+        self.model_client = model_client
 
     def _parse_json(self, text: str) -> dict:
         # Try to find JSON string within triple backticks, assuming there are possibly multiple json markdown string
@@ -65,17 +66,14 @@ class LLMEvaluator(Evaluator):
         reference: Any,
         input: CodeReviewTaskInstance,
     ) -> dict:
-        response = self.llm_client.chat.completions.create(
-            model=self.llm_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prediction.review_text + "\n" + EVALUATION_PROMPT,
-                },
-            ],
-        )
-        answer = response.choices[0].message.content
+        messages = [
+            {
+                "role": "user",
+                "content": prediction.review_text + "\n" + EVALUATION_PROMPT,
+            }
+        ]
 
+        answer = self.model_client.create_completion(messages)
         return self._parse_json(answer)
 
 

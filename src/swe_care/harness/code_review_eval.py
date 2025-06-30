@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
-from openai import OpenAI
 from tqdm import tqdm
 
 from swe_care.harness.evaluators import Evaluator
@@ -19,6 +18,7 @@ from swe_care.schema.evaluation import (
     CodeReviewEvaluationResult,
     EvaluatorResult,
 )
+from swe_care.utils.llm_models import BaseModelClient, init_llm_client, parse_model_args
 from swe_care.utils.load import load_code_review_dataset, load_code_review_predictions
 
 
@@ -41,8 +41,7 @@ _EVALUATOR_MAP: dict[EvaluatorType, type[Evaluator]] = {
 def load_evaluator(
     evaluator_type: EvaluatorType,
     *,
-    llm_client: Optional[OpenAI] = None,
-    llm_model: Optional[str] = None,
+    model_client: Optional[BaseModelClient] = None,
     **kwargs: Any,
 ) -> Evaluator:
     """Load the evaluator based on the type."""
@@ -53,12 +52,9 @@ def load_evaluator(
         )
     evaluator_cls = _EVALUATOR_MAP[evaluator_type]
     if issubclass(evaluator_cls, LLMEvaluator):
-        if llm_client is None:
-            raise ValueError("LLM client is required for LLM evaluator")
-        if llm_model is None:
-            raise ValueError("LLM model is required for LLM evaluator")
-        evaluator_cls.llm_client = llm_client
-        evaluator_cls.llm_model = llm_model
+        if model_client is None:
+            raise ValueError("LLM model client is required for LLM evaluator")
+        return evaluator_cls(model_client=model_client, **kwargs)
     return evaluator_cls(**kwargs)
 
 
@@ -67,8 +63,9 @@ def code_review_eval(
     predictions_path: Path | str,
     output_dir: Path | str,
     evaluator_types: list[EvaluatorType],
-    llm_client: Optional[OpenAI] = None,
-    llm_model: Optional[str] = None,
+    model: Optional[str] = None,
+    model_provider: Optional[str] = None,
+    model_args: Optional[str] = None,
 ) -> None:
     """
     Run evaluation on code review predictions.
@@ -77,6 +74,10 @@ def code_review_eval(
         dataset_file: Path to the dataset file (code_review_task_instances.jsonl)
         predictions_path: Path to predictions file or directory containing predictions
         output_dir: Directory where the final_report.json will be saved
+        evaluator_types: List of evaluator types to use
+        model: Model name to use for LLM evaluation (required if using LLM evaluator)
+        model_provider: Model provider (required if using LLM evaluator)
+        model_args: Comma-separated model arguments
     """
     if isinstance(dataset_file, str):
         dataset_file = Path(dataset_file)
@@ -88,11 +89,20 @@ def code_review_eval(
     instances = load_code_review_dataset(dataset_file)
     predictions = load_code_review_predictions(predictions_path)
 
+    # Initialize LLM client if needed
+    model_client = None
+    if EvaluatorType.LLM_EVALUATOR in evaluator_types:
+        if not model or not model_provider:
+            raise ValueError("Model and model provider are required for LLM evaluator")
+
+        model_kwargs = parse_model_args(model_args)
+        model_client = init_llm_client(model, model_provider, **model_kwargs)
+        logger.info(f"Initialized {model_provider} client with model {model}")
+
     evaluators = [
         load_evaluator(
             evaluator_type,
-            llm_client=llm_client,
-            llm_model=llm_model,
+            model_client=model_client,
         )
         for evaluator_type in evaluator_types
     ]

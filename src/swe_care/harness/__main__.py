@@ -3,10 +3,10 @@ import sys
 from pathlib import Path
 
 from loguru import logger
-from openai import OpenAI
 
 import swe_care.harness.code_review_eval
 from swe_care.harness.code_review_eval import EvaluatorType, code_review_eval
+from swe_care.utils.llm_models import LLM_CLIENT_MAP
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
@@ -89,23 +89,32 @@ def get_args():
                 choices=[e.value for e in EvaluatorType],
                 help="Evaluator type to use",
             )
+
+            # Get available models and providers from LLM_CLIENT_MAP
+            available_providers = list(LLM_CLIENT_MAP.keys())
+            available_models = []
+            for provider_info in LLM_CLIENT_MAP.values():
+                available_models.extend(provider_info["models"])
+
             sub_parser.add_argument(
-                "--llm-model",
+                "--model",
                 type=str,
                 required=False,
-                help="LLM model to use",
+                choices=available_models,
+                help=f"Model name to use for LLM evaluation. Available models: {', '.join(available_models)}",
             )
             sub_parser.add_argument(
-                "--llm-api-key",
+                "--model-provider",
                 type=str,
                 required=False,
-                help="LLM API key to use",
+                choices=available_providers,
+                help=f"Model provider for LLM evaluation. Available providers: {', '.join(available_providers)}",
             )
             sub_parser.add_argument(
-                "--llm-base-url",
+                "--model-args",
                 type=str,
                 required=False,
-                help="LLM API base to use",
+                help="Comma-separated model arguments for LLM evaluation (e.g., 'temperature=0.7,top_p=0.9')",
             )
 
     # Parse all arguments with the subcommand parser
@@ -132,22 +141,13 @@ def main():
         # Add specific arguments based on subcommand
         match args.command:
             case "code_review_eval":
-                llm_kwargs = {}
-                if args.llm_api_key:
-                    llm_kwargs["api_key"] = args.llm_api_key
-                if args.llm_base_url:
-                    llm_kwargs["base_url"] = args.llm_base_url
-                llm_client = OpenAI(**llm_kwargs)
-                logger.info(
-                    f"Using LLM client: {llm_client} with model: {args.llm_model}"
-                )
-
                 function(
                     dataset_file=args.dataset_file,
                     predictions_path=args.predictions_path,
                     evaluator_types=args.evaluator,
-                    llm_client=llm_client,
-                    llm_model=args.llm_model,
+                    model=args.model,
+                    model_provider=args.model_provider,
+                    model_args=args.model_args,
                     **common_kwargs,
                 )
     else:
