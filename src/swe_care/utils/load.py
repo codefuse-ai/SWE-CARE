@@ -4,6 +4,7 @@ from loguru import logger
 
 from swe_care.schema.dataset import CodeReviewTaskInstance
 from swe_care.schema.evaluation import CodeReviewPrediction
+from swe_care.schema.inference import CodeReviewInferenceInstance
 
 
 def load_code_review_dataset(dataset_file: Path | str) -> list[CodeReviewTaskInstance]:
@@ -53,3 +54,40 @@ def load_code_review_predictions(
                 raise e
     logger.success(f"Loaded {len(predictions)} predictions")
     return predictions
+
+
+def load_code_review_text(
+    dataset_file: Path | str,
+) -> list[CodeReviewInferenceInstance]:
+    """Load the code review text dataset instances from the JSONL file.
+
+    Args:
+        dataset_file: Path to the input JSONL file containing CodeReviewInferenceInstance objects
+
+    Returns:
+        List of CodeReviewInferenceInstance objects
+
+    Raises:
+        FileNotFoundError: If the dataset file doesn't exist
+        Exception: If there's an error parsing the file
+    """
+    if isinstance(dataset_file, str):
+        dataset_file = Path(dataset_file)
+    logger.info("Loading inference text dataset instances...")
+
+    if not dataset_file.exists():
+        raise FileNotFoundError(f"Dataset file not found: {dataset_file}")
+
+    dataset_instances: list[CodeReviewInferenceInstance] = []
+
+    with open(dataset_file, "r") as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                instance = CodeReviewInferenceInstance.from_json(line.strip())
+                dataset_instances.append(instance)
+            except Exception as e:
+                logger.error(f"Error processing line {line_num}: {e}")
+                raise e
+
+    logger.success(f"Loaded {len(dataset_instances)} inference text dataset instances")
+    return dataset_instances

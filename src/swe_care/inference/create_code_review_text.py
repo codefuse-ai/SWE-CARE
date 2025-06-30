@@ -7,6 +7,7 @@ the original dataset and applying different file source strategies (oracle, bm25
 
 import json
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal
 
@@ -63,6 +64,7 @@ def create_code_review_text(
     k: int | None = None,
     retrieval_file: Path | None = None,
     tokens: list[str] | None = None,
+    jobs: int = 2,
 ) -> None:
     """
     Generate text datasets from SWE-CARE with specified prompts and context sources.
@@ -74,8 +76,11 @@ def create_code_review_text(
         k: Maximum number of files to use for retrieval
         retrieval_file: File with BM25 retrieval results (required for bm25 file_source)
         tokens: GitHub API tokens (optional)
+        jobs: Number of parallel jobs for multithreaded processing (default: 2)
     """
-    logger.info(f"Starting create_code_review_text with file_source={file_source}")
+    logger.info(
+        f"Starting create_code_review_text with file_source={file_source}, jobs={jobs}"
+    )
 
     if file_source == "bm25":
         # TODO
@@ -118,16 +123,46 @@ def create_code_review_text(
     # Process dataset and generate text
     processed_instances = []
 
-    for instance in tqdm(instances, desc="Processing instances"):
-        processed_instance = create_code_review_text_instance(
-            instance=instance,
-            file_source=file_source,
-            k=k,
-            retrieval_data=retrieval_data,
-            tokens=tokens,
-        )
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        # Submit all tasks
+        future_to_instance = {
+            executor.submit(
+                create_code_review_text_instance,
+                instance,
+                file_source,
+                k,
+                retrieval_data,
+                tokens,
+            ): instance
+            for instance in instances
+        }
 
-        processed_instances.append(processed_instance)
+        # Process completed tasks with progress bar
+        with tqdm(total=len(instances), desc="Processing instances") as pbar:
+            for future in as_completed(future_to_instance):
+                instance = future_to_instance[future]
+
+                try:
+                    prediction = future.result()
+                    if prediction:
+                        processed_instances.append(prediction)
+                    else:
+                        logger.warning(
+                            f"Failed to process instance {instance.instance_id}"
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        f"Exception processing instance {instance.instance_id}: {e}"
+                    )
+
+                pbar.update(1)
+                pbar.set_postfix(
+                    {
+                        "success": len(processed_instances),
+                        "failed": len(instances) - len(processed_instances),
+                    }
+                )
 
     # Save the processed dataset
     output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
@@ -205,7 +240,7 @@ def get_oracle_files(
     merged_commit_changed_file_paths = get_changed_file_paths(instance.merged_patch)
     logger.debug(f"Changed file paths: {merged_commit_changed_file_paths}")
 
-    changed_file_paths = set(review_commit_changed_file_paths) & set(
+    changed_file_paths = set(review_commit_changed_file_paths) | set(
         merged_commit_changed_file_paths
     )
 

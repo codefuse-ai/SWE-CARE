@@ -98,9 +98,11 @@ You can find more details about the arguments for each script by running `python
 
 ## 🔄 Inference
 
-Before running evaluation, you can generate text datasets from the collected SWE-CARE data with different context strategies. The inference module creates datasets in the format required for LLM evaluation.
+The inference module provides two main functionalities: generating text datasets and running LLM inference on code review tasks.
 
-Here's an example of how to generate text datasets:
+### 1. Generate Text Datasets
+
+Before running evaluation, you can generate text datasets from the collected SWE-CARE data with different context strategies. This creates datasets in the format required for LLM evaluation.
 
 ```bash
 python -m swe_care.inference create_code_review_text \
@@ -110,7 +112,7 @@ python -m swe_care.inference create_code_review_text \
     --tokens "your_github_pat"
 ```
 
-### File Source Strategies
+#### File Source Strategies
 
 The `--file-source` parameter supports different strategies for selecting context files:
 
@@ -118,13 +120,66 @@ The `--file-source` parameter supports different strategies for selecting contex
 * **bm25**: Uses BM25 retrieval to select relevant files (requires `--retrieval-file`)
 * **all**: Uses all available files up to a specified limit (requires `--k` parameter)
 
-### Additional Parameters
+#### Additional Parameters for Text Generation
 
 * `--k`: Maximum number of files to include (used with bm25 and all strategies)
 * `--retrieval-file`: Path to BM25 retrieval results file (required for bm25 strategy)
 * `--tokens`: GitHub Personal Access Token(s) for API access
+* `--jobs`: Number of parallel jobs for multithreaded processing (default: 2)
 
-The generated text dataset will contain prompts with code context, issue descriptions, patches, and review instructions formatted for LLM evaluation.
+### 2. Run LLM Inference
+
+After generating text datasets, you can run inference using various LLM APIs to generate code review predictions.
+
+```bash
+# Example with OpenAI GPT-4o
+export OPENAI_API_KEY=<your_openai_api_key>
+python -m swe_care.inference run_api \
+    --dataset-file "results/code_review_text/dataset__oracle.jsonl" \
+    --model "gpt-4o" \
+    --model-provider "openai" \
+    --model-args "temperature=0.7,top_p=0.9" \
+    --output-dir "results/predictions" \
+    --jobs 4 \
+    --skip-existing
+
+# Example with Anthropic Claude
+export ANTHROPIC_API_KEY=<your_anthropic_api_key>
+python -m swe_care.inference run_api \
+    --dataset-file "results/code_review_text/dataset__oracle.jsonl" \
+    --model "claude-3-5-sonnet-20241022" \
+    --model-provider "anthropic" \
+    --model-args "temperature=0.5,max_tokens=4096" \
+    --output-dir "results/predictions" \
+    --jobs 2
+
+# Example with DeepSeek
+export OPENAI_API_KEY=<your_deepseek_api_key>
+python -m swe_care.inference run_api \
+    --dataset-file "results/code_review_text/dataset__oracle.jsonl" \
+    --model "deepseek-chat" \
+    --model-provider "deepseek" \
+    --output-dir "results/predictions" \
+    --jobs 1
+```
+
+#### Supported Model Providers
+
+See `python -m swe_care.inference run_api --help` for the supported model providers and models.
+
+If you are using an API provider other than the provided ones, you can run inference with `export OPENAI_BASE_URL=<your_openai_base_url>` or `export ANTHROPIC_BASE_URL=<your_anthropic_base_url>` to specify the base URL for the API.
+
+#### Parameters for LLM Inference
+
+* `--dataset-file`: Path to the text dataset file (CodeReviewInferenceInstance objects)
+* `--model`: Model name to use for inference
+* `--model-provider`: Model provider (openai, anthropic, deepseek, qwen)
+* `--model-args`: Comma-separated model arguments (e.g., `temperature=0.7,top_p=0.9`)
+* `--output-dir`: Directory to save generated predictions
+* `--jobs`: Number of parallel threads for inference (default: 1)
+* `--skip-existing`: Skip instances that already have predictions (flag, default: False)
+
+The generated predictions will be saved as JSONL files containing `CodeReviewPrediction` objects, which can then be used for evaluation.
 
 ## 🚀 Evaluation
 

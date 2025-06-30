@@ -70,7 +70,7 @@ class LLMEvaluator(Evaluator):
             messages=[
                 {
                     "role": "user",
-                    "content": prediction.review + "\n" + EVALUATION_PROMPT,
+                    "content": prediction.review_text + "\n" + EVALUATION_PROMPT,
                 },
             ],
         )
@@ -90,7 +90,7 @@ class RuleBasedEvaluator(Evaluator):
     @property
     def requires_input(self) -> bool:
         """Whether this evaluator requires an input."""
-        return True
+        return False
 
     def _evaluate(
         self,

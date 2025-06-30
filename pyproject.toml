@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "anthropic>=0.55.0",
     "dataclasses-json>=0.6.7",
     "loguru>=0.7.2",
     "openai>=1.90.0",

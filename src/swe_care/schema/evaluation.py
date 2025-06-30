@@ -11,7 +11,7 @@ class CodeReviewPrediction:
 
     instance_id: str
     """The instance ID of the code review task"""
-    review: str
+    review_text: str
     """The prediction of the code review"""
     review_trajectory: list[str] | None = None
     """The trajectory of the code review, including the intermediate steps"""

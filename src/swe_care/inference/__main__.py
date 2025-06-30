@@ -5,13 +5,20 @@ from pathlib import Path
 from loguru import logger
 
 import swe_care.inference.create_code_review_text
+import swe_care.inference.run_api
 from swe_care.inference.create_code_review_text import create_code_review_text
+from swe_care.inference.run_api import run_api
+from swe_care.utils.llm_models import LLM_CLIENT_MAP
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
     "create_code_review_text": {
         "function": create_code_review_text,
         "help": swe_care.inference.create_code_review_text.__doc__,
+    },
+    "run_api": {
+        "function": run_api,
+        "help": swe_care.inference.run_api.__doc__,
     },
 }
 
@@ -101,6 +108,65 @@ def get_args():
                 default=None,
                 help="GitHub API token(s) to be used randomly for fetching data",
             )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=2,
+                help="Number of parallel jobs for multithreaded processing (default: 2)",
+            )
+
+        case "run_api":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.inference {subcommand}",
+                parents=[global_parser],
+                description=SUBCOMMAND_MAP[subcommand]["help"],
+            )
+            sub_parser.add_argument(
+                "--dataset-file",
+                type=Path,
+                required=True,
+                help="Path to the input dataset file containing CodeReviewInferenceInstance objects",
+            )
+
+            # Get available models and providers from LLM_CLIENT_MAP
+            available_providers = list(LLM_CLIENT_MAP.keys())
+            available_models = []
+            for provider_info in LLM_CLIENT_MAP.values():
+                available_models.extend(provider_info["models"])
+
+            sub_parser.add_argument(
+                "--model",
+                type=str,
+                required=True,
+                choices=available_models,
+                help=f"Model name to use for inference. Available models: {', '.join(available_models)}",
+            )
+            sub_parser.add_argument(
+                "--model-provider",
+                type=str,
+                required=True,
+                choices=available_providers,
+                default="openai" if "openai" in available_providers else None,
+                help=f"Model provider. Available providers: {', '.join(available_providers)}",
+            )
+            sub_parser.add_argument(
+                "--model-args",
+                type=str,
+                default=None,
+                help="List of model arguments separated by commas (e.g., 'top_p=0.95,temperature=0.70')",
+            )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=1,
+                help="Number of parallel jobs for multithreaded inference (default: 1)",
+            )
+            sub_parser.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=False,
+                help="Whether to skip existing predictions in the output file (default: False)",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -132,6 +198,17 @@ def main():
                     k=args.k,
                     retrieval_file=args.retrieval_file,
                     tokens=args.tokens,
+                    jobs=args.jobs,
+                    **common_kwargs,
+                )
+            case "run_api":
+                function(
+                    dataset_file=args.dataset_file,
+                    model=args.model,
+                    model_provider=args.model_provider,
+                    model_args=args.model_args,
+                    jobs=args.jobs,
+                    skip_existing=args.skip_existing,
                     **common_kwargs,
                 )
     else:
