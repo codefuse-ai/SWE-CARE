@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.schema.inference import CodeReviewInferenceInstance
-from swe_care.utils.llm_models import BaseModelClient, init_llm_client, parse_model_args
+from swe_care.utils.llm_models import init_llm_client, parse_model_args
+from swe_care.utils.llm_models.clients import BaseModelClient
 from swe_care.utils.load import load_code_review_text
 
 

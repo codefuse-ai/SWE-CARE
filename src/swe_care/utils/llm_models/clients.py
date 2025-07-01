@@ -18,6 +18,13 @@ except ImportError:
         "Anthropic package not found. Please install it with: pip install anthropic"
     )
 
+try:
+    import tiktoken
+except ImportError:
+    raise ImportError(
+        "Tiktoken package not found. Please install it with: pip install tiktoken"
+    )
+
 DEFAULT_MAX_RETRIES = 4
 
 
@@ -54,6 +61,16 @@ class BaseModelClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def count_tokens_from_text(self, text: str) -> int:
+        """Count the number of tokens in the text."""
+        pass
+
+    @abstractmethod
+    def count_tokens_from_messages(self, messages: list[dict[str, str]]) -> int:
+        """Count the number of tokens in the messages."""
+        pass
+
 
 class OpenAIClient(BaseModelClient):
     """OpenAI API client."""
@@ -84,6 +101,37 @@ class OpenAIClient(BaseModelClient):
         except Exception as e:
             logger.error(f"Error creating OpenAI completion: {e}")
             raise e
+
+    def count_tokens_from_text(self, text: str) -> int:
+        """Count the number of tokens in the text using tiktoken."""
+        try:
+            encoding = tiktoken.encoding_for_model(self.model)
+        except KeyError:
+            # Fall back to o200k_base encoding if model not found
+            encoding = tiktoken.get_encoding("o200k_base")
+
+        return len(encoding.encode(text))
+
+    def count_tokens_from_messages(self, messages: list[dict[str, str]]) -> int:
+        """Count the number of tokens in the messages using tiktoken."""
+        try:
+            encoding = tiktoken.encoding_for_model(self.model)
+        except KeyError:
+            # Fall back to o200k_base encoding if model not found
+            encoding = tiktoken.get_encoding("o200k_base")
+
+        tokens_per_message = 3
+        tokens_per_name = 1
+
+        num_tokens = 0
+        for message in messages:
+            num_tokens += tokens_per_message
+            for key, value in message.items():
+                num_tokens += len(encoding.encode(value))
+                if key == "name":
+                    num_tokens += tokens_per_name
+        num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>
+        return num_tokens
 
 
 class DeepSeekClient(OpenAIClient):
@@ -140,22 +188,38 @@ class AnthropicClient(BaseModelClient):
 
         self.client = anthropic.Anthropic(api_key=api_key, max_retries=self.max_retries)
 
+    def _convert_to_anthropic_format(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[list[dict[str, str]], str | None]:
+        """Convert messages from OpenAI format to Anthropic format.
+
+        Args:
+            messages: List of messages in OpenAI format
+
+        Returns:
+            Tuple of (anthropic_messages, system_message)
+        """
+        system_message = None
+        anthropic_messages = []
+
+        # Extract system message if present
+        if messages and messages[0]["role"] == "system":
+            system_message = messages[0]["content"]
+            messages = messages[1:]
+
+        # Format remaining messages
+        for msg in messages:
+            anthropic_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        return anthropic_messages, system_message
+
     def create_completion(self, messages: list[dict[str, str]]) -> str:
         """Create a completion using Anthropic API."""
         try:
             # Convert OpenAI format to Anthropic format
-            if messages and messages[0]["role"] == "system":
-                system_message = messages[0]["content"]
-                messages = messages[1:]
-            else:
-                system_message = None
-
-            # Anthropic expects alternating user/assistant messages
-            anthropic_messages = []
-            for msg in messages:
-                anthropic_messages.append(
-                    {"role": msg["role"], "content": msg["content"]}
-                )
+            anthropic_messages, system_message = self._convert_to_anthropic_format(
+                messages
+            )
 
             kwargs = self.model_kwargs.copy()
             if system_message:
@@ -172,116 +236,35 @@ class AnthropicClient(BaseModelClient):
             logger.error(f"Error creating Anthropic completion: {e}")
             raise e
 
-
-# Map of available LLM clients
-LLM_CLIENT_MAP = {
-    "openai": {
-        "client_class": OpenAIClient,
-        "models": [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4.1",
-            "gpt-4.5-preview",
-            "o1",
-            "o1-mini",
-            "o3",
-            "o3-mini",
-        ],
-    },
-    "anthropic": {
-        "client_class": AnthropicClient,
-        "models": [
-            "claude-opus-4-20250514",
-            "claude-sonnet-4-20250514",
-            "claude-3-7-sonnet-20250219",
-            "claude-3-5-sonnet-20241022",
-        ],
-    },
-    "deepseek": {
-        "client_class": DeepSeekClient,
-        "models": ["deepseek-chat", "deepseek-reasoner"],
-    },
-    "qwen": {
-        "client_class": QwenClient,
-        "models": ["qwen3-32b", "qwen3-30b-a3b", "qwen3-235b-a22b"],
-    },
-}
-
-
-def init_llm_client(
-    model: str, model_provider: str, **model_kwargs: Any
-) -> BaseModelClient:
-    """Initialize an LLM client.
-
-    Args:
-        model: Model name
-        model_provider: Provider name (openai, anthropic)
-        **model_kwargs: Additional model arguments
-
-    Returns:
-        Initialized LLM client
-
-    Raises:
-        ValueError: If the model provider or model is not supported
-    """
-    if model_provider not in LLM_CLIENT_MAP:
-        raise ValueError(
-            f"Unsupported model provider: {model_provider}. "
-            f"Supported providers: {list(LLM_CLIENT_MAP.keys())}"
-        )
-
-    provider_info = LLM_CLIENT_MAP[model_provider]
-
-    if model not in provider_info["models"]:
-        logger.warning(
-            f"Model {model} not in known models for {model_provider}. "
-            f"Known models: {provider_info['models']}. Proceeding anyway..."
-        )
-
-    client_class = provider_info["client_class"]
-    return client_class(model, model_provider, **model_kwargs)
-
-
-def parse_model_args(model_args_str: str | None) -> dict[str, Any]:
-    """Parse model arguments string into a dictionary.
-
-    Args:
-        model_args_str: Comma-separated string of key=value pairs
-
-    Returns:
-        Dictionary of parsed arguments
-
-    Example:
-        "top_p=0.95,temperature=0.70" -> {"top_p": 0.95, "temperature": 0.70}
-    """
-    if not model_args_str:
-        return {}
-
-    args = {}
-    for pair in model_args_str.split(","):
-        if "=" not in pair:
-            logger.warning(f"Skipping invalid model argument: {pair}")
-            continue
-
-        key, value = pair.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        # Try to convert to appropriate type
+    def count_tokens_from_text(self, text: str) -> int:
+        """Count the number of tokens in the text using Anthropic's API."""
         try:
-            # Try int first
-            if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
-                args[key] = int(value)
-            # Try float
-            elif "." in value and value.replace(".", "").replace("-", "").isdigit():
-                args[key] = float(value)
-            # Try boolean
-            elif value.lower() in ("true", "false"):
-                args[key] = value.lower() == "true"
-            # Keep as string
-            else:
-                args[key] = value
-        except ValueError:
-            args[key] = value
+            # Wrap the text in a user message for token counting
+            result = self.client.messages.count_tokens(
+                model=self.model, messages=[{"role": "user", "content": text}]
+            )
+            return result.usage.input_tokens
+        except Exception as e:
+            logger.error(f"Error counting tokens with Anthropic API: {e}")
+            raise e
 
-    return args
+    def count_tokens_from_messages(self, messages: list[dict[str, str]]) -> int:
+        """Count the number of tokens in the messages using Anthropic's API."""
+        try:
+            # Convert OpenAI format to Anthropic format
+            anthropic_messages, system_message = self._convert_to_anthropic_format(
+                messages
+            )
+
+            # Count tokens with Anthropic API
+            kwargs = {}
+            if system_message:
+                kwargs["system"] = system_message
+
+            result = self.client.messages.count_tokens(
+                model=self.model, messages=anthropic_messages, **kwargs
+            )
+            return result.usage.input_tokens
+        except Exception as e:
+            logger.error(f"Error counting tokens with Anthropic API: {e}")
+            raise e

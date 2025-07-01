@@ -8,7 +8,7 @@ from swe_care.schema.dataset import (
     ReferenceReviewComment,
 )
 from swe_care.schema.evaluation import CodeReviewPrediction
-from swe_care.utils.llm_models import BaseModelClient
+from swe_care.utils.llm_models.clients import BaseModelClient
 
 EVALUATION_PROMPT = """\
 Your task is to evaluate the quliaty of the code review. Below are the required fields of a standard code review:

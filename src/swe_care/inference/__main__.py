@@ -8,7 +8,7 @@ import swe_care.inference.create_code_review_text
 import swe_care.inference.run_api
 from swe_care.inference.create_code_review_text import create_code_review_text
 from swe_care.inference.run_api import run_api
-from swe_care.utils.llm_models import LLM_CLIENT_MAP
+from swe_care.utils.llm_models import get_available_models_and_providers
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
@@ -128,11 +128,7 @@ def get_args():
                 help="Path to the input dataset file containing CodeReviewInferenceInstance objects",
             )
 
-            # Get available models and providers from LLM_CLIENT_MAP
-            available_providers = list(LLM_CLIENT_MAP.keys())
-            available_models = []
-            for provider_info in LLM_CLIENT_MAP.values():
-                available_models.extend(provider_info["models"])
+            available_providers, available_models = get_available_models_and_providers()
 
             sub_parser.add_argument(
                 "--model",
