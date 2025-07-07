@@ -23,6 +23,7 @@ LLM_CLIENT_MAP = {
             {"name": "o1-mini", "max_input_tokens": 128000},
             {"name": "o3", "max_input_tokens": 200000},
             {"name": "o3-mini", "max_input_tokens": 200000},
+            {"name": "gemini-2.5-pro-preview-06-05", "max_input_tokens": 1048576},
         ],
     },
     "anthropic": {
@@ -85,7 +86,9 @@ def init_llm_client(
 
     provider_info = LLM_CLIENT_MAP[model_provider]
 
-    if model not in provider_info["models"]:
+    _, model_list = get_available_models_and_providers()
+
+    if model not in model_list:
         logger.warning(
             f"Model {model} not in known models for {model_provider}. "
             f"Known models: {provider_info['models']}. Proceeding anyway..."
