@@ -35,5 +35,7 @@ class CodeReviewEvaluationResult:
 
     instance_id: str
     """The instance ID of the code review task"""
+    score: float
+    """The score of the code review"""
     evaluations: list[EvaluatorResult]
     """The evaluation of the code review"""

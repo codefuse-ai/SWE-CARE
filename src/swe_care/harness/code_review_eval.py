@@ -95,8 +95,17 @@ def code_review_eval_instance(
             )
         )
 
+    score = sum(
+        [
+            evaluation.evaluation.get("score", 0)
+            for evaluation in evaluation_results
+            if evaluation.evaluation.get("score", 0) is not None
+        ]
+    ) / len(evaluation_results)
+
     evaluation_result = CodeReviewEvaluationResult(
         instance_id=instance.instance_id,
+        score=score,
         evaluations=evaluation_results,
     )
 

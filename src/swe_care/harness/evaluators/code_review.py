@@ -401,6 +401,23 @@ class RuleBasedEvaluator(Evaluator):
             sum(matched_scores) / len(matched_scores) if matched_scores else 0.0
         )
 
+        # Calculate average similarities
+        location_similarities = [match["location_similarity"] for match in matches]
+        description_similarities = [
+            match["description_similarity"] for match in matches
+        ]
+
+        average_location_similarity = (
+            sum(location_similarities) / len(location_similarities)
+            if location_similarities
+            else 0.0
+        )
+        average_description_similarity = (
+            sum(description_similarities) / len(description_similarities)
+            if description_similarities
+            else 0.0
+        )
+
         # Combine metrics for final score
         score = (f1 * 0.6) + (average_match_score * 0.4)
 
@@ -410,6 +427,8 @@ class RuleBasedEvaluator(Evaluator):
             "recall": recall,
             "f1": f1,
             "average_match_score": average_match_score,
+            "average_location_similarity": average_location_similarity,
+            "average_description_similarity": average_description_similarity,
             "num_predicted": total_predicted,
             "num_reference": total_reference,
             "num_true_positives": true_positives,
