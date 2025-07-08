@@ -470,6 +470,7 @@ def get_repo_pr_data(
     repo: str,
     tokens: Optional[list[str]] = None,
     max_number: Optional[int] = None,
+    after_pr_cursor: Optional[str] = None,
 ) -> Iterator[dict]:
     """
     Execute GraphQL query for a given repo and yield crawled PR data with complete pagination.
@@ -485,6 +486,7 @@ def get_repo_pr_data(
         repo: Repository in format 'owner/repo'
         tokens: Optional list of GitHub tokens for API requests
         max_number: Maximum number of PRs to fetch. If not provided, all PRs will be fetched.
+        after_pr_cursor: Optional cursor to resume fetching after (for resuming interrupted runs)
 
     Yields:
         Dictionaries containing complete PR data with all nested information,
@@ -501,7 +503,7 @@ def get_repo_pr_data(
     # Create GitHub API instance
     github_api = GitHubAPI(tokens=tokens)
 
-    pr_cursor = None
+    pr_cursor = after_pr_cursor
 
     if max_number is None:
         logger.info(f"max_number is not provided, fetching all PRs for {repo}")
@@ -510,6 +512,11 @@ def get_repo_pr_data(
     current_page_size = min(max_number, 20)  # Start with conservative page size
     total_yielded = 0
 
+    if after_pr_cursor:
+        logger.info(f"Resuming PR fetching for {repo} after cursor: {after_pr_cursor}")
+    else:
+        logger.info(f"Starting PR fetching for {repo} from the beginning")
+
     while True:
         variables = {
             "owner": repo_owner,
@@ -517,6 +524,10 @@ def get_repo_pr_data(
             "maxNumber": current_page_size,
             "prCursor": pr_cursor,
         }
+
+        # Log current cursor for debugging/resuming
+        if pr_cursor:
+            logger.debug(f"Current PR cursor for {repo}: {pr_cursor}")
 
         try:
             results = github_api.execute_graphql_query(
@@ -675,6 +686,7 @@ def process_single_repository(
     tokens: Optional[list[str]] = None,
     max_number: Optional[int] = None,
     specific_prs: Optional[list[int]] = None,
+    after_pr_cursor: Optional[str] = None,
 ) -> tuple[str, int]:
     """
     Process a single repository and save PR data to file.
@@ -685,6 +697,7 @@ def process_single_repository(
         tokens: Optional list of GitHub tokens for API requests
         max_number: Maximum number of PRs to fetch (ignored if specific_prs is provided). If not provided, all PRs will be fetched.
         specific_prs: Optional list of specific PR numbers to fetch
+        after_pr_cursor: Optional cursor to resume fetching after (for resuming interrupted runs)
 
     Returns:
         Tuple of (repo_name, pr_count)
@@ -698,8 +711,14 @@ def process_single_repository(
 
         # Process PR data for this repository and write immediately
         pr_count = 0
-        with output_file.open("w") as out_f:
+        with output_file.open("a") as out_f:
             if specific_prs:
+                # Warn if cursor is provided for specific PRs
+                if after_pr_cursor:
+                    logger.warning(
+                        f"Ignoring --after-pr-cursor for {repo_name} when fetching specific PRs"
+                    )
+
                 # Fetch specific PRs
                 for pr in get_specific_prs_data(
                     repo=repo_name,
@@ -714,6 +733,7 @@ def process_single_repository(
                     repo=repo_name,
                     tokens=tokens,
                     max_number=max_number,
+                    after_pr_cursor=after_pr_cursor,
                 ):
                     out_f.write(json.dumps(pr) + "\n")
                     pr_count += 1
@@ -742,7 +762,8 @@ def get_graphql_prs_data(
     tokens: Optional[list[str]] = None,
     max_number: Optional[int] = None,
     specific_prs: Optional[list[int]] = None,
-    job: int = 2,
+    jobs: int = 2,
+    after_pr_cursor: Optional[str] = None,
 ) -> None:
     """
     Get comprehensive PR data from GitHub GraphQL API with complete pagination.
@@ -752,13 +773,18 @@ def get_graphql_prs_data(
     Only fetches PRs that have at least 1 closing issues reference (when specific_prs is not provided).
 
     Args:
-        repo_file: Path to repository file (output from get_top_repos)
+        repo_file: Path to repository file (output from get_top_repos). Each line should be a JSON
+                   object with 'name' field in format 'owner/repo'. Optionally include 'pr_cursor'
+                   field to resume fetching from a specific cursor for each repository.
+                   Example: {"name": "owner/repo", "pr_cursor": "Y3Vyc29yOnYyOpK5MjAyNC0wNy0wOFQxNzozMDoyNFo="}
         repo: Repository in format 'owner/repo'
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
         max_number: Maximum number of PRs to fetch (ignored when specific_prs is provided). If not provided, all PRs will be fetched.
         specific_prs: List of specific PR numbers to fetch. If provided, only these PRs will be fetched.
-        job: Number of concurrent jobs/threads to use (default: 2)
+        jobs: Number of concurrent jobs/threads to use (default: 2)
+        after_pr_cursor: Optional cursor to resume fetching after (for resuming interrupted runs).
+                        When used with repo_file, acts as fallback for repositories without pr_cursor field.
     """
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
@@ -767,6 +793,11 @@ def get_graphql_prs_data(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Validate that after_pr_cursor is not used with specific_prs
+    if after_pr_cursor and specific_prs:
+        logger.warning("--after-pr-cursor is ignored when --specific-prs is provided")
+        after_pr_cursor = None
+
     if repo_file:
         # Process multiple repositories from file with multi-threading
         if isinstance(repo_file, str):
@@ -774,8 +805,8 @@ def get_graphql_prs_data(
         if not repo_file.exists():
             raise FileNotFoundError(f"Repository file not found: {repo_file}")
 
-        # Read all repository names first
-        repo_names = []
+        # Read all repository names and cursors first
+        repo_data_list = []
         with repo_file.open("r") as f:
             for line in f:
                 line = line.strip()
@@ -790,44 +821,65 @@ def get_graphql_prs_data(
                         logger.warning(f"No 'name' field found in line: {line}")
                         continue
 
-                    repo_names.append(repo_name)
+                    # Extract pr_cursor if available, use global cursor as fallback
+                    repo_cursor = repo_data.get("pr_cursor")
+                    if after_pr_cursor and repo_cursor:
+                        logger.warning(
+                            f"Both --after-pr-cursor and pr_cursor in file found for {repo_name}, using file cursor: {repo_cursor}"
+                        )
+                    elif after_pr_cursor and not repo_cursor:
+                        repo_cursor = after_pr_cursor
+                        logger.info(
+                            f"Using global --after-pr-cursor for {repo_name}: {repo_cursor}"
+                        )
+
+                    repo_data_list.append({"name": repo_name, "cursor": repo_cursor})
 
                 except json.JSONDecodeError as e:
                     logger.error(f"Error parsing JSON line: {line}, error: {e}")
 
-        if not repo_names:
+        if not repo_data_list:
             logger.warning("No valid repositories found in file")
             return
 
         if specific_prs:
             logger.info(
-                f"Processing {len(repo_names)} repositories with {job} concurrent jobs (fetching specific PRs: {specific_prs})..."
+                f"Processing {len(repo_data_list)} repositories with {jobs} concurrent jobs (fetching specific PRs: {specific_prs})..."
             )
         else:
-            logger.info(
-                f"Processing {len(repo_names)} repositories with {job} concurrent jobs..."
-            )
+            cursor_info = sum(1 for repo in repo_data_list if repo["cursor"])
+            if cursor_info > 0:
+                logger.info(
+                    f"Processing {len(repo_data_list)} repositories with {jobs} concurrent jobs ({cursor_info} with resume cursors)..."
+                )
+            else:
+                logger.info(
+                    f"Processing {len(repo_data_list)} repositories with {jobs} concurrent jobs..."
+                )
 
         # Process repositories using ThreadPoolExecutor
         total_prs = 0
         successful_repos = 0
 
-        with ThreadPoolExecutor(max_workers=job) as executor:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
             # Submit all jobs
             future_to_repo = {
                 executor.submit(
                     process_single_repository,
-                    repo_name,
+                    repo_data["name"],
                     output_dir,
                     tokens,
                     max_number,
                     specific_prs,
-                ): repo_name
-                for repo_name in repo_names
+                    repo_data["cursor"],
+                ): repo_data["name"]
+                for repo_data in repo_data_list
             }
 
             # Process completed jobs with progress bar
-            with tqdm(total=len(repo_names), desc="Processing repositories") as pbar:
+            with tqdm(
+                total=len(repo_data_list), desc="Processing repositories"
+            ) as pbar:
                 for future in as_completed(future_to_repo):
                     repo_name = future_to_repo[future]
                     try:
@@ -838,7 +890,7 @@ def get_graphql_prs_data(
                         pbar.set_postfix(
                             {
                                 "PRs": total_prs,
-                                "Success": f"{successful_repos}/{len(repo_names)}",
+                                "Success": f"{successful_repos}/{len(repo_data_list)}",
                             }
                         )
                     except Exception as e:
@@ -849,7 +901,7 @@ def get_graphql_prs_data(
                         pbar.update(1)
 
         logger.info(
-            f"Completed processing. Total PRs collected: {total_prs} from {successful_repos}/{len(repo_names)} repositories"
+            f"Completed processing. Total PRs collected: {total_prs} from {successful_repos}/{len(repo_data_list)} repositories"
         )
 
     elif repo:
@@ -859,8 +911,9 @@ def get_graphql_prs_data(
             )
         else:
             logger.info(f"Processing single repository: {repo}, no threading needed")
+
         repo_name, pr_count = process_single_repository(
-            repo, output_dir, tokens, max_number, specific_prs
+            repo, output_dir, tokens, max_number, specific_prs, after_pr_cursor
         )
 
     else:

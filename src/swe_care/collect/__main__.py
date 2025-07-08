@@ -116,7 +116,7 @@ def get_args():
             repo_group.add_argument(
                 "--repo-file",
                 type=Path,
-                help="Path to repository JSONL file containing repository information, each line should be a JSON object with at least a 'name' field in format 'owner/repo'",
+                help="Path to repository JSONL file containing repository information, each line should be a JSON object with at least a 'name' field in format 'owner/repo'. Optionally, include 'pr_cursor' field to resume fetching from a specific cursor for each repository.",
                 default=None,
             )
             repo_group.add_argument(
@@ -132,7 +132,7 @@ def get_args():
                 help="Maximum number of PRs to fetch per page (ignored when specific_prs is provided). If not provided, all PRs will be fetched.",
             )
             sub_parser.add_argument(
-                "--job",
+                "--jobs",
                 type=int,
                 default=2,
                 help="Number of concurrent jobs/threads to use (default: 2)",
@@ -143,6 +143,12 @@ def get_args():
                 nargs="*",
                 default=None,
                 help="Specific PR numbers to fetch (if not specified, fetches all PRs with closing issues)",
+            )
+            sub_parser.add_argument(
+                "--after-pr-cursor",
+                type=str,
+                default=None,
+                help="Resume fetching PRs after this cursor (useful for resuming interrupted runs). When used with --repo-file, acts as fallback for repositories without pr_cursor field in the file.",
             )
         case "evaluate_commits":
             sub_parser = argparse.ArgumentParser(
@@ -224,7 +230,8 @@ def main():
                     repo=args.repo,
                     max_number=args.max_number,
                     specific_prs=args.specific_prs,
-                    job=args.job,
+                    jobs=args.jobs,
+                    after_pr_cursor=args.after_pr_cursor,
                     **common_kwargs,
                 )
             case "evaluate_commits":
