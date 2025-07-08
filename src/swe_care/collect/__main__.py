@@ -116,7 +116,7 @@ def get_args():
             repo_group.add_argument(
                 "--repo-file",
                 type=Path,
-                help="Path to repository file",
+                help="Path to repository JSONL file containing repository information, each line should be a JSON object with at least a 'name' field in format 'owner/repo'",
                 default=None,
             )
             repo_group.add_argument(
