@@ -18,6 +18,8 @@ class ReviewCommentLabels:
     """Whether the review thread is outdated"""
     is_collapsed: bool
     """Whether the review thread is collapsed"""
+    marked_as_dismissed: bool
+    """Whether the review comment was marked as dismissed (minimized for reasons other than being resolved)"""
 
 
 @dataclass_json

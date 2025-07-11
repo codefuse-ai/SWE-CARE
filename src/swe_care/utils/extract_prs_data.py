@@ -453,6 +453,18 @@ def extract_labeled_review_comments_by_commit(
             is_outdated = thread_metadata.get("isOutdated", False)
             is_collapsed = thread_metadata.get("isCollapsed", False)
 
+            # Check if any comment in the thread is marked as dismissed
+            # A comment is dismissed if it's minimized for reasons other than being resolved
+            marked_as_dismissed = False
+            for comment in comments:
+                is_minimized = comment.get("isMinimized", False)
+                minimized_reason = comment.get("minimizedReason") or ""
+                minimized_reason = minimized_reason.upper()
+
+                if is_minimized and minimized_reason != "RESOLVED":
+                    marked_as_dismissed = True
+                    break
+
             # Determine the line number to check for line change detection
             line_to_check = None
             if first_comment.get("originalLine") is not None:
@@ -489,6 +501,7 @@ def extract_labeled_review_comments_by_commit(
                     is_resolved=is_resolved,
                     is_outdated=is_outdated,
                     is_collapsed=is_collapsed,
+                    marked_as_dismissed=marked_as_dismissed,
                 ),
             )
             labeled_comments.append(labeled_comment)
