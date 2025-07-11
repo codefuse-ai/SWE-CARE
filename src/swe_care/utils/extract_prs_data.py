@@ -99,6 +99,116 @@ def extract_hints(
     return "\n".join(hints_parts).strip()
 
 
+def _should_include_comment_for_commit(
+    comment: dict[str, Any],
+    commit_to_review: str,
+    pr_commit_oids: set[str],
+    commits: list[dict[str, Any]],
+) -> bool:
+    """
+    Determine if a review comment should be included for a specific commit.
+
+    This function handles the complex scenario where GitHub's originalCommit
+    becomes orphaned due to commit history rewriting (force pushes, amends, etc.).
+
+    GitHub Behavior:
+    - When a review comment is made on a commit, GitHub stores both `originalCommit`
+      and `commit` fields
+    - `originalCommit`: The commit where the comment was originally made
+    - `commit`: The current commit (often updated to merge commit or latest commit)
+    - When commits are force-pushed or amended, `originalCommit` may become orphaned
+      (not present in the PR's commit list) while `commit` gets updated
+
+    Strategies:
+    1. Direct originalCommit matching (ideal case)
+    2. Temporal matching for orphaned commits: A comment belongs to commit A if it was
+       created after commit A's committedDate but before the subsequent commit B's committedDate
+
+    Args:
+        comment: The review comment data
+        commit_to_review: The target commit OID to match against
+        pr_commit_oids: Set of all commit OIDs in the PR
+        commits: List of all commits in the PR with metadata
+
+    Returns:
+        True if the comment should be included for the commit
+    """
+    # Strategy 1: Check if the comment's originalCommit matches commit_to_review
+    original_commit = comment.get("originalCommit", {})
+    original_commit_oid = original_commit.get("oid") if original_commit else None
+
+    if original_commit_oid == commit_to_review:
+        logger.debug(f"Comment matched by originalCommit: {original_commit_oid}")
+        return True
+
+    # Strategy 2: Handle orphaned originalCommit with temporal matching
+    # If originalCommit is not in PR commits, use temporal logic
+    if original_commit_oid and original_commit_oid not in pr_commit_oids:
+        try:
+            comment_created_str = comment.get("createdAt", "")
+            if not comment_created_str:
+                return False
+
+            comment_created = datetime.fromisoformat(
+                comment_created_str.replace("Z", "+00:00")
+            )
+
+            # Sort commits by committedDate to ensure chronological order
+            sorted_commits = []
+            for commit_node in commits:
+                commit = commit_node.get("commit", {})
+                commit_date_str = commit.get("committedDate", "")
+                if commit_date_str and commit.get("oid"):
+                    commit_date = datetime.fromisoformat(
+                        commit_date_str.replace("Z", "+00:00")
+                    )
+                    sorted_commits.append((commit.get("oid"), commit_date))
+
+            sorted_commits.sort(key=lambda x: x[1])  # Sort by date
+
+            # Find the target commit and its position
+            target_commit_index = None
+            target_commit_date = None
+
+            for i, (commit_oid, commit_date) in enumerate(sorted_commits):
+                if commit_oid == commit_to_review:
+                    target_commit_index = i
+                    target_commit_date = commit_date
+                    break
+
+            if target_commit_date is None:
+                return False
+
+            # Check if comment was created after the target commit
+            if comment_created <= target_commit_date:
+                return False
+
+            # Check if there's a subsequent commit
+            if target_commit_index is not None and target_commit_index + 1 < len(
+                sorted_commits
+            ):
+                # Get the next commit's date
+                _, next_commit_date = sorted_commits[target_commit_index + 1]
+
+                # Comment should be between target commit and next commit
+                if comment_created < next_commit_date:
+                    logger.debug(
+                        f"Comment matched by temporal logic: created between {commit_to_review} and next commit"
+                    )
+                    return True
+            else:
+                # This is the last commit, so comment should be after target commit
+                logger.debug(
+                    f"Comment matched by temporal logic: created after last commit {commit_to_review}"
+                )
+                return True
+
+        except (ValueError, AttributeError) as e:
+            logger.debug(f"Failed to parse dates for temporal matching: {e}")
+
+    return False
+
+
 def extract_labeled_review_comments_by_commit(
     pr_data: dict[str, Any],
     commit_to_review: str,
@@ -147,13 +257,26 @@ def extract_labeled_review_comments_by_commit(
     # Group comments by thread for review threads with matching commit
     thread_comments_map = defaultdict(list)
 
+    # Get all commit OIDs from the PR for reference
+    pr_commit_oids = set()
+    commits = pr_data.get("commits", {}).get("nodes", [])
+    for commit_node in commits:
+        commit = commit_node.get("commit", {})
+        if commit.get("oid"):
+            pr_commit_oids.add(commit.get("oid"))
+
     for thread_id, comment_ids in review_threads_with_comment_ids.items():
         for comment_id in comment_ids:
             comment = comment_id_to_comment.get(comment_id)
             if comment:
-                # Check if the comment's commit matches commit_to_review
-                original_commit = comment.get("commit", {})
-                if original_commit and original_commit.get("oid") == commit_to_review:
+                should_include_comment = _should_include_comment_for_commit(
+                    comment,
+                    commit_to_review,
+                    pr_commit_oids,
+                    commits,
+                )
+
+                if should_include_comment:
                     thread_comments_map[thread_id].append(comment)
 
     # Get PR author login for comparison
