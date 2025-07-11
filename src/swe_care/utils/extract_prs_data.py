@@ -99,6 +99,155 @@ def extract_hints(
     return "\n".join(hints_parts).strip()
 
 
+def is_referenced_line_changed_in_merged_commit(
+    repo: str,
+    commit_to_review: str,
+    file_path: str,
+    line: int,
+    merged_commit: str,
+    tokens: Optional[list[str]] = None,
+) -> bool:
+    """
+    Check if a referenced line was changed in the merged commit.
+
+    Args:
+        repo: Repository name in format 'owner/repo'
+        commit_to_review: The commit OID being reviewed
+        file_path: Path to the file
+        line: Line number to check
+        merged_commit: The final merged commit
+        tokens: GitHub API tokens
+
+    Returns:
+        True if the referenced line was changed in the merged commit
+    """
+    try:
+        # Fetch patch between commits
+        patch_content = fetch_patch_between_commits(
+            repo=repo,
+            base_commit=commit_to_review,
+            head_commit=merged_commit,
+            tokens=tokens,
+        )
+
+        # Check if the line was changed
+        return is_line_changed_in_patch(
+            patch_content=patch_content,
+            file_path=file_path,
+            line_number=line,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to check line change for {file_path}:{line}: {e}")
+        return False
+
+
+def anonymize_comment_body(
+    comment_body: str,
+    pr_author_login: str,
+    user_mapping: dict[str, str],
+    user_counter: dict[str, int],
+) -> str:
+    """
+    Anonymize @mentions in comment body.
+
+    Args:
+        comment_body: The original comment body
+        pr_author_login: The PR author's login name
+        user_mapping: Mapping of actual username to anonymized identifier
+        user_counter: Counter for assigning user numbers (passed as dict to allow mutation)
+
+    Returns:
+        Comment body with anonymized @mentions
+    """
+
+    def replace_mention(match):
+        mentioned_username = match.group(1)
+
+        # Use @author if it's the PR author
+        if mentioned_username == pr_author_login:
+            return "@author"
+        else:
+            # For non-author users, assign or reuse numbered identifier
+            if mentioned_username not in user_mapping:
+                if mentioned_username:  # Valid username
+                    user_mapping[mentioned_username] = f"@user{user_counter['count']}"
+                    user_counter["count"] += 1
+                else:  # Empty or missing username
+                    user_mapping[mentioned_username] = "@unknown"
+            return user_mapping[mentioned_username]
+
+    # Replace all @mentions in the comment body
+    return re.sub(r"@(\w+)", replace_mention, comment_body)
+
+
+def _extract_thread_comments_data(
+    pr_data: dict[str, Any],
+    commit_to_review: str,
+    pr_commit_oids: set[str],
+    commits: list[dict[str, Any]],
+) -> dict[str, tuple[list[dict[str, Any]], dict[str, Any]]]:
+    """
+    Extract thread comments data organized by thread ID.
+
+    Args:
+        pr_data: PR data containing reviews and review threads
+        commit_to_review: The commit OID to filter comments for
+        pr_commit_oids: Set of all commit OIDs in the PR
+        commits: List of all commits in the PR with metadata
+
+    Returns:
+        Dict mapping thread_id to (comments_list, thread_metadata)
+    """
+    # Get all review threads
+    review_threads = pr_data.get("reviewThreads", {}).get("nodes", [])
+    thread_id_to_metadata = {thread.get("id"): thread for thread in review_threads}
+
+    # Collect IDs of comments in threads
+    review_threads_with_comment_ids = defaultdict(list)
+    for thread in review_threads:
+        thread_comments = thread.get("comments", {}).get("nodes", [])
+        for comment in thread_comments:
+            comment_id = comment.get("id")
+            if comment_id:
+                review_threads_with_comment_ids[thread.get("id")].append(comment_id)
+
+    # Get all review comments from all reviews
+    reviews = pr_data.get("reviews", {}).get("nodes", [])
+    comment_id_to_comment = {}
+
+    for review in reviews:
+        review_comments = review.get("comments", {}).get("nodes", [])
+        for comment in review_comments:
+            comment_id = comment.get("id")
+            if comment_id:
+                comment_id_to_comment[comment_id] = comment
+
+    # Group comments by thread for review threads with matching commit
+    thread_comments_data = {}
+
+    for thread_id, comment_ids in review_threads_with_comment_ids.items():
+        relevant_comments = []
+
+        for comment_id in comment_ids:
+            comment = comment_id_to_comment.get(comment_id)
+            if comment:
+                should_include_comment = _should_include_comment_for_commit(
+                    comment,
+                    commit_to_review,
+                    pr_commit_oids,
+                    commits,
+                )
+
+                if should_include_comment:
+                    relevant_comments.append(comment)
+
+        if relevant_comments:
+            thread_metadata = thread_id_to_metadata.get(thread_id, {})
+            thread_comments_data[thread_id] = (relevant_comments, thread_metadata)
+
+    return thread_comments_data
+
+
 def _should_include_comment_for_commit(
     comment: dict[str, Any],
     commit_to_review: str,
@@ -138,7 +287,7 @@ def _should_include_comment_for_commit(
     original_commit_oid = original_commit.get("oid") if original_commit else None
 
     if original_commit_oid == commit_to_review:
-        logger.debug(f"Comment matched by originalCommit: {original_commit_oid}")
+        logger.trace(f"Comment matched by originalCommit: {original_commit_oid}")
         return True
 
     # Strategy 2: Handle orphaned originalCommit with temporal matching
@@ -192,19 +341,19 @@ def _should_include_comment_for_commit(
 
                 # Comment should be between target commit and next commit
                 if comment_created < next_commit_date:
-                    logger.debug(
+                    logger.trace(
                         f"Comment matched by temporal logic: created between {commit_to_review} and next commit"
                     )
                     return True
             else:
                 # This is the last commit, so comment should be after target commit
-                logger.debug(
+                logger.trace(
                     f"Comment matched by temporal logic: created after last commit {commit_to_review}"
                 )
                 return True
 
         except (ValueError, AttributeError) as e:
-            logger.debug(f"Failed to parse dates for temporal matching: {e}")
+            logger.trace(f"Failed to parse dates for temporal matching: {e}")
 
     return False
 
@@ -231,32 +380,6 @@ def extract_labeled_review_comments_by_commit(
     """
     labeled_comments = []
 
-    # Get all review threads
-    review_threads = pr_data.get("reviewThreads", {}).get("nodes", [])
-    review_threads_with_comment_ids = defaultdict(list)
-
-    # Collect IDs of comments in threads, mapping thread ID to list of comment IDs
-    for thread in review_threads:
-        thread_comments = thread.get("comments", {}).get("nodes", [])
-        for comment in thread_comments:
-            comment_id = comment.get("id")
-            if comment_id:
-                review_threads_with_comment_ids[thread.get("id")].append(comment_id)
-
-    # Get all review comments from all reviews
-    reviews = pr_data.get("reviews", {}).get("nodes", [])
-    comment_id_to_comment = {}
-
-    for review in reviews:
-        review_comments = review.get("comments", {}).get("nodes", [])
-        for comment in review_comments:
-            comment_id = comment.get("id")
-            if comment_id:
-                comment_id_to_comment[comment_id] = comment
-
-    # Group comments by thread for review threads with matching commit
-    thread_comments_map = defaultdict(list)
-
     # Get all commit OIDs from the PR for reference
     pr_commit_oids = set()
     commits = pr_data.get("commits", {}).get("nodes", [])
@@ -265,39 +388,16 @@ def extract_labeled_review_comments_by_commit(
         if commit.get("oid"):
             pr_commit_oids.add(commit.get("oid"))
 
-    for thread_id, comment_ids in review_threads_with_comment_ids.items():
-        for comment_id in comment_ids:
-            comment = comment_id_to_comment.get(comment_id)
-            if comment:
-                should_include_comment = _should_include_comment_for_commit(
-                    comment,
-                    commit_to_review,
-                    pr_commit_oids,
-                    commits,
-                )
-
-                if should_include_comment:
-                    thread_comments_map[thread_id].append(comment)
+    # Extract thread comments data using helper function
+    thread_comments_data = _extract_thread_comments_data(
+        pr_data, commit_to_review, pr_commit_oids, commits
+    )
 
     # Get PR author login for comparison
     pr_author_login = pr_data.get("author", {}).get("login", "")
 
-    # Get patch for line change detection
-    patch_content = ""
-    try:
-        patch_content = fetch_patch_between_commits(
-            repo=repo,
-            base_commit=commit_to_review,
-            head_commit=merged_commit,
-            tokens=tokens,
-        )
-    except Exception as e:
-        logger.warning(
-            f"Failed to get patch for {commit_to_review} -> {merged_commit}: {e}"
-        )
-
     # Create LabeledReviewComment for each review thread with matching comments
-    for thread_id, comments in thread_comments_map.items():
+    for thread_id, (comments, thread_metadata) in thread_comments_data.items():
         if not comments:
             continue
 
@@ -307,35 +407,17 @@ def extract_labeled_review_comments_by_commit(
         # Aggregate comment bodies with user differentiation
         aggregated_parts = []
         user_mapping = {}  # Maps actual username to numbered identifier
-        user_counter = 1  # Counter for assigning user numbers
+        user_counter = {"count": 1}  # Counter for assigning user numbers
 
         for comment in comments:
             comment_body = comment.get("body", "")
             if comment_body:
-                # Replace @mentions in comment body with censored usernames
-                def replace_mention(match):
-                    nonlocal user_counter
-                    mentioned_username = match.group(1)
+                # Anonymize @mentions in comment body
+                comment_body = anonymize_comment_body(
+                    comment_body, pr_author_login, user_mapping, user_counter
+                )
 
-                    # Use @author if it's the PR author
-                    if mentioned_username == pr_author_login:
-                        return "@author"
-                    else:
-                        # For non-author users, assign or reuse numbered identifier
-                        if mentioned_username not in user_mapping:
-                            if mentioned_username:  # Valid username
-                                user_mapping[mentioned_username] = (
-                                    f"@user{user_counter}"
-                                )
-                                user_counter += 1
-                            else:  # Empty or missing username (shouldn't happen in this context)
-                                user_mapping[mentioned_username] = "@unknown"
-                        return user_mapping[mentioned_username]
-
-                # Replace all @mentions in the comment body
-                comment_body = re.sub(r"@(\w+)", replace_mention, comment_body)
-
-                # Get comment author login
+                # Get comment author login and anonymize
                 comment_author = comment.get("author", {})
                 if comment_author:
                     author_login = comment_author.get("login", "")
@@ -347,41 +429,36 @@ def extract_labeled_review_comments_by_commit(
                         # For non-author users, assign or reuse numbered identifier
                         if author_login not in user_mapping:
                             if author_login:  # Valid username
-                                user_mapping[author_login] = f"@user{user_counter}"
-                                user_counter += 1
+                                user_mapping[author_login] = (
+                                    f"@user{user_counter['count']}"
+                                )
+                                user_counter["count"] += 1
                             else:  # Empty or missing username
                                 user_mapping[author_login] = "@unknown"
                         user_identifier = user_mapping[author_login]
 
-                    aggregated_parts.append(f"{user_identifier}\n{comment_body}")
+                    aggregated_parts.append(f"{user_identifier}:\n{comment_body}\n")
                 else:
                     # Fallback if author information is missing
-                    aggregated_parts.append(f"@unknown\n{comment_body}")
+                    aggregated_parts.append(f"@unknown:\n{comment_body}\n")
 
         aggregated_text = "\n".join(aggregated_parts)
 
-        # Use the first comment for other fields since they should be the same for the thread
-        first_comment = comments[0]
+        if aggregated_text:
+            # Use the first comment for other fields since they should be the same for the thread
+            first_comment = comments[0]
 
-        # Find the corresponding thread to get additional metadata
-        corresponding_thread = None
-        for thread in review_threads:
-            if thread.get("id") == thread_id:
-                corresponding_thread = thread
-                break
-
-        if corresponding_thread and aggregated_text:
             # Extract thread metadata for labels
-            is_resolved = corresponding_thread.get("isResolved", False)
-            is_outdated = corresponding_thread.get("isOutdated", False)
-            is_collapsed = corresponding_thread.get("isCollapsed", False)
+            is_resolved = thread_metadata.get("isResolved", False)
+            is_outdated = thread_metadata.get("isOutdated", False)
+            is_collapsed = thread_metadata.get("isCollapsed", False)
 
             # Determine the line number to check for line change detection
             line_to_check = None
-            if first_comment.get("line") is not None:
-                line_to_check = first_comment.get("line")
-            elif first_comment.get("originalLine") is not None:
+            if first_comment.get("originalLine") is not None:
                 line_to_check = first_comment.get("originalLine")
+            elif first_comment.get("line") is not None:
+                line_to_check = first_comment.get("line")
             elif first_comment.get("startLine") is not None:
                 line_to_check = first_comment.get("startLine")
             elif first_comment.get("originalStartLine") is not None:
@@ -389,21 +466,15 @@ def extract_labeled_review_comments_by_commit(
 
             # Check if referenced line was changed in merged commit
             referenced_line_changed = False
-            if (
-                line_to_check is not None
-                and first_comment.get("path")
-                and patch_content
-            ):
-                try:
-                    referenced_line_changed = is_line_changed_in_patch(
-                        patch_content=patch_content,
-                        file_path=first_comment.get("path"),
-                        line_number=line_to_check,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to check line change for {first_comment.get('path')}:{line_to_check}: {e}"
-                    )
+            if line_to_check is not None and first_comment.get("path"):
+                referenced_line_changed = is_referenced_line_changed_in_merged_commit(
+                    repo=repo,
+                    commit_to_review=commit_to_review,
+                    file_path=first_comment.get("path"),
+                    line=line_to_check,
+                    merged_commit=merged_commit,
+                    tokens=tokens,
+                )
 
             labeled_comment = LabeledReviewComment(
                 text=aggregated_text,
@@ -429,16 +500,41 @@ def fetch_patch_between_commits(
     repo: str, base_commit: str, head_commit: str, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch between two commits."""
-    github_api = GitHubAPI(tokens=tokens)
-    return github_api.get_patch(repo, base_commit=base_commit, head_commit=head_commit)
+
+    @lru_cache(maxsize=128)
+    def _fetch_patch_between_commits_cached(
+        repo: str,
+        base_commit: str,
+        head_commit: str,
+        tokens: Optional[tuple[str, ...]] = None,
+    ) -> str:
+        """Cached version of fetch_patch_between_commits."""
+        github_api = GitHubAPI(tokens=tokens)
+        return github_api.get_patch(
+            repo, base_commit=base_commit, head_commit=head_commit
+        )
+
+    if tokens:
+        tokens = tuple(tokens)
+    return _fetch_patch_between_commits_cached(repo, base_commit, head_commit, tokens)
 
 
 def fetch_pr_patch(
     repo: str, pull_number: int, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch for the entire PR."""
-    github_api = GitHubAPI(tokens=tokens)
-    return github_api.get_patch(repo, pr_number=pull_number)
+
+    @lru_cache(maxsize=128)
+    def _fetch_pr_patch_cached(
+        repo: str, pull_number: int, tokens: Optional[tuple[str, ...]] = None
+    ) -> str:
+        """Cached version of fetch_pr_patch."""
+        github_api = GitHubAPI(tokens=tokens)
+        return github_api.get_patch(repo, pr_number=pull_number)
+
+    if tokens:
+        tokens = tuple(tokens)
+    return _fetch_pr_patch_cached(repo, pull_number, tokens)
 
 
 def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
@@ -446,7 +542,9 @@ def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
 
     # To fix unhashable type: 'list' error thrown by lru_cache
     @lru_cache(maxsize=128)
-    def _get_repo_language(repo: str, tokens: Optional[tuple[str, ...]] = None) -> str:
+    def _fetch_repo_language_cached(
+        repo: str, tokens: Optional[tuple[str, ...]] = None
+    ) -> str:
         """Get the language of a repository."""
         github_api = GitHubAPI(tokens=tokens)
 
@@ -472,4 +570,4 @@ def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
     if tokens:
         tokens = tuple(tokens)
 
-    return _get_repo_language(repo, tokens)
+    return _fetch_repo_language_cached(repo, tokens)
