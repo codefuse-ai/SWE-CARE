@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 from datetime import datetime
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import Any, Optional
 
 from loguru import logger
@@ -9,6 +9,35 @@ from loguru import logger
 from swe_care.schema.collect import LabeledReviewComment, ReviewCommentLabels
 from swe_care.utils.github import GitHubAPI
 from swe_care.utils.patch import is_line_changed_in_patch
+
+
+def cached_with_tuple_conversion(func):
+    """Decorator that converts list arguments to tuples for lru_cache compatibility."""
+
+    @lru_cache(maxsize=128)
+    def cached_func(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Convert list arguments to tuples
+        converted_args = []
+        for arg in args:
+            if isinstance(arg, list):
+                converted_args.append(tuple(arg) if arg else None)
+            else:
+                converted_args.append(arg)
+
+        converted_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, list):
+                converted_kwargs[key] = tuple(value) if value else None
+            else:
+                converted_kwargs[key] = value
+
+        return cached_func(*converted_args, **converted_kwargs)
+
+    return wrapper
 
 
 def extract_problem_statement(closing_issues: list[dict[str, Any]]) -> str:
@@ -509,96 +538,53 @@ def extract_labeled_review_comments_by_commit(
     return labeled_comments
 
 
+@cached_with_tuple_conversion
 def fetch_patch_between_commits(
     repo: str, base_commit: str, head_commit: str, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch between two commits."""
-
-    @lru_cache(maxsize=128)
-    def _fetch_patch_between_commits_cached(
-        repo: str,
-        base_commit: str,
-        head_commit: str,
-        tokens: Optional[tuple[str, ...]] = None,
-    ) -> str:
-        """Cached version of fetch_patch_between_commits."""
-        github_api = GitHubAPI(tokens=tokens)
-        return github_api.get_patch(
-            repo, base_commit=base_commit, head_commit=head_commit
-        )
-
-    if tokens:
-        tokens = tuple(tokens)
-    return _fetch_patch_between_commits_cached(repo, base_commit, head_commit, tokens)
+    github_api = GitHubAPI(tokens=tokens)
+    return github_api.get_patch(repo, base_commit=base_commit, head_commit=head_commit)
 
 
+@cached_with_tuple_conversion
 def fetch_pr_patch(
     repo: str, pull_number: int, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch for the entire PR."""
-
-    @lru_cache(maxsize=128)
-    def _fetch_pr_patch_cached(
-        repo: str, pull_number: int, tokens: Optional[tuple[str, ...]] = None
-    ) -> str:
-        """Cached version of fetch_pr_patch."""
-        github_api = GitHubAPI(tokens=tokens)
-        return github_api.get_patch(repo, pr_number=pull_number)
-
-    if tokens:
-        tokens = tuple(tokens)
-    return _fetch_pr_patch_cached(repo, pull_number, tokens)
+    github_api = GitHubAPI(tokens=tokens)
+    return github_api.get_patch(repo, pr_number=pull_number)
 
 
+@cached_with_tuple_conversion
 def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
     """Get the language of a repository."""
+    github_api = GitHubAPI(tokens=tokens)
 
-    # To fix unhashable type: 'list' error thrown by lru_cache
-    @lru_cache(maxsize=128)
-    def _fetch_repo_language_cached(
-        repo: str, tokens: Optional[tuple[str, ...]] = None
-    ) -> str:
-        """Get the language of a repository."""
-        github_api = GitHubAPI(tokens=tokens)
+    # Try to get repository info first
+    response = github_api.call_api(f"repos/{repo}")
+    repo_data = response.json()
 
-        # Try to get repository info first
-        response = github_api.call_api(f"repos/{repo}")
-        repo_data = response.json()
+    if "language" in repo_data and repo_data["language"]:
+        return repo_data["language"]
+    else:
+        logger.warning(
+            f"Repository {repo} does not have a language field, trying to get primary language"
+        )
+        # Get languages endpoint
+        response = github_api.call_api(f"repos/{repo}/languages")
+        languages = response.json()
 
-        if "language" in repo_data and repo_data["language"]:
-            return repo_data["language"]
+        if languages:
+            return max(languages, key=languages.get)
         else:
-            logger.warning(
-                f"Repository {repo} does not have a language field, trying to get primary language"
-            )
-            # Get languages endpoint
-            response = github_api.call_api(f"repos/{repo}/languages")
-            languages = response.json()
-
-            if languages:
-                return max(languages, key=languages.get)
-            else:
-                raise Exception(f"Repository {repo} has no languages: {languages}")
-
-    if tokens:
-        tokens = tuple(tokens)
-
-    return _fetch_repo_language_cached(repo, tokens)
+            raise Exception(f"Repository {repo} has no languages: {languages}")
 
 
+@cached_with_tuple_conversion
 def fetch_repo_file_content(
     repo: str, commit: str, file_path: str, tokens: Optional[list[str]] = None
 ) -> str:
     """Get the content of a file from a repository at a specific commit with caching."""
-
-    @lru_cache(maxsize=128)
-    def _fetch_repo_file_content_cached(
-        repo: str, commit: str, file_path: str, tokens: Optional[tuple[str, ...]] = None
-    ) -> str:
-        """Cached version of fetch_repo_file_content."""
-        github_api = GitHubAPI(tokens=tokens)
-        return github_api.get_file_content(repo, commit, file_path)
-
-    if tokens:
-        tokens = tuple(tokens)
-    return _fetch_repo_file_content_cached(repo, commit, file_path, tokens)
+    github_api = GitHubAPI(tokens=tokens)
+    return github_api.get_file_content(repo, commit, file_path)
