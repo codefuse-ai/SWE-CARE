@@ -274,6 +274,7 @@ def main(max_workers: int = None, dry_run: bool = False):
             model_provider="openai",
             temperature=0.1,
         )
+        print(test_client)
         logger.info("Successfully initialized OpenAI client")
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI client: {e}")
