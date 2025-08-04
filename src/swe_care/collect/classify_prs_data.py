@@ -742,4 +742,3 @@ def classify_pr_data(
         return None
 
 
-classify_prs_data(graphql_prs_data_file=Path('results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl'),output_dir=Path('./results/classify_prs_data'),tokens=['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'],jobs=1)

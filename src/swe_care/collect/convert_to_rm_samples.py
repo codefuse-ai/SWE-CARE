@@ -547,4 +547,3 @@ def format_review_comment(
     return prompt
 
 
-convert_to_rm_samples(graphql_prs_data_file=Path('results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl'),pr_classification_file=Path('results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl'),output_dir=Path("./results/rm_samples"),file_source='retrieved_all_files',tokens=['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'],jobs=1)

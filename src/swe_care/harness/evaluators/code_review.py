@@ -35,7 +35,7 @@ Give a score between 0 and 1 (inclusive) to each of these five dimensions, and o
 ```
 {
     "function": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
-    "complexity": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
+    "quality": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
     "style": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
     "documentation": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score}
 }

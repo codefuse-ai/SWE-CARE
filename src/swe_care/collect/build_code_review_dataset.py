@@ -429,5 +429,3 @@ def build_code_review_dataset(
     logger.info("All dataset building completed")
     logger.info(f"Final dataset saved to {output_file}")
 
-
-build_code_review_dataset(graphql_prs_data_file='results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl',pr_classification_file='results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl',output_dir="./results/dataset",tokens=['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'],jobs=1)
