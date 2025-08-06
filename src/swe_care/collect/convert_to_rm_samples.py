@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
 
-import nltk
 from loguru import logger
 from nltk.tokenize import word_tokenize
 from rank_bm25 import BM25Okapi
@@ -26,8 +25,6 @@ from swe_care.utils.extract_prs_data import (
     fetch_repo_files_content_by_retrieval,
 )
 from swe_care.utils.patch import get_changed_file_paths
-
-nltk.download("punkt_tab")
 
 
 def convert_to_rm_samples(

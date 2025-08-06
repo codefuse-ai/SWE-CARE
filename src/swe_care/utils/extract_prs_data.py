@@ -9,14 +9,15 @@ from typing import Any, Optional
 from loguru import logger
 
 from swe_care.schema.collect import LabeledReviewComment, ReviewCommentLabels
-from swe_care.utils.github import GitHubAPI
-from swe_care.utils.patch import is_line_changed_in_patch
-from swe_care.utils.retrieval import (
+from swe_care.utils.bm25_retrieval import (
     DOCUMENT_ENCODING_FUNCTIONS,
+    ContextManager,
     clone_repo,
     make_index,
     search,
 )
+from swe_care.utils.github import GitHubAPI
+from swe_care.utils.patch import is_line_changed_in_patch
 
 
 def cached_with_tuple_conversion(func):
@@ -659,8 +660,6 @@ def fetch_repo_files_content_by_retrieval(
         retrieved_files = {}
         if results and results.get("hits"):
             # specific commit
-            from swe_care.utils.retrieval import ContextManager
-
             with ContextManager(repo_dir, commit):
                 for hit in results["hits"][:max_files]:
                     file_path = hit["docid"]

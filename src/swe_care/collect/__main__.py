@@ -246,9 +246,15 @@ def get_args():
             sub_parser.add_argument(
                 "--file-source",
                 type=str,
-                choices=["none", "base_changed_files", "reviewed_file"],
+                choices=[
+                    "none",
+                    "base_changed_files",
+                    "reviewed_file",
+                    "retrieved_base_changed_files",
+                    "retrieved_all_files",
+                ],
                 default="none",
-                help="Source for file content in review samples. Choices: 'none' (no file content in review samples), 'base_changed_files' (include changed files contents between base commit and commit to review), 'reviewed_file' (include changed file content to the sample the review comment applied to). Default: none",
+                help="Source for file content in review samples. Choices: 'none' (no file content in review samples), 'base_changed_files' (include changed files contents between base commit and commit to review), 'reviewed_file' (include changed file content to the sample the review comment applied to), 'retrieved_base_changed_files' (use BM25 to retrieve relevant files from changed files based on diff_hunk), 'retrieved_all_files' (use BM25 to retrieve relevant files from entire repository based on diff_hunk). Default: none",
             )
             sub_parser.add_argument(
                 "--jobs",

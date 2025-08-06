@@ -79,8 +79,14 @@ class RewardModelTrainingSampleMetadata:
     """Pull request URL"""
     commit_to_review: str
     """Commit SHA being reviewed"""
-    file_source: Literal["none", "base_changed_files", "reviewed_file"]
-    """Source for file content ('none', 'base_changed_files', or 'reviewed_file')"""
+    file_source: Literal[
+        "none",
+        "base_changed_files",
+        "reviewed_file",
+        "retrieved_base_changed_files",
+        "retrieved_all_files",
+    ]
+    """Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')"""
 
 
 @dataclass_json

@@ -149,49 +149,54 @@ Here's an example of the command-line usage for each step:
     * Match them with corresponding `*_pr_classification.jsonl` files
     * Process multiple file pairs concurrently using the specified number of jobs
 
-5. **Convert to Reward Model Training Samples**: Convert PR classification data to reward model training samples.
-
-    **Single file processing:**
-
-    ```bash
-    python -m swe_care.collect convert_to_rm_samples \
-        --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
-        --pr-classification-file "results/classify_prs_data/<repo_owner>__<repo_name>_pr_classification.jsonl" \
-        --output-dir "./results/rm_samples" \
-        --file-source "none"
-    ```
-
-    **Batch processing (multiple repositories):**
-
-    ```bash
-    python -m swe_care.collect convert_to_rm_samples \
-        --graphql-prs-data-file "results/graphql_prs_data/" \
-        --pr-classification-file "results/classify_prs_data/" \
-        --output-dir "./results/rm_samples" \
-        --file-source "base_changed_files" \
-        --jobs 4
-    ```
-
-    This step converts classified PR data into training samples for reward models. Each sample contains:
-    * **Problem Statement**: Extracted from closing issues or PR description using the `extract_problem_statement` utility
-    * **Patch to Review**: The actual code changes (patch) from the commit
-    * **Positive Reviews**: Review comments where referenced lines were changed in the merged commit AND the review thread is resolved
-    * **Negative Reviews**: All other review comments
-    * **Metadata**: Repository info, PR number, commit SHA, PR URL, and file source for traceability
-
-   #### File Source Options
-
-    The `--file-source` parameter controls how file content is included in the review samples:
-
-    * **`none`** (default): Uses the default sample format without including changed files content
-    * **`base_changed_files`**: Includes the content of changed files from the patch between base commit and commit to review in the review comment sample
-    * **`reviewed_file`**: Includes changed file content to the sample the review comment applied to
-
-    When `--file-source` is set to `base_changed_files` or `reviewed_file`, review comments will include a `<file_content>` section containing the relevant file content extracted from the patch, providing more context for training.
-
-    The output files follow the naming pattern `<repo_owner>__<repo_name>_rm_samples.jsonl` and contain `RewardModelTrainingSample` objects with comprehensive metadata for each training instance.
-
 You can find more details about the arguments for each script by running `python -m swe_care.collect <subcommand> -h`.
+
+### Convert to Reward Model Training Samples
+
+This is an additional processing step that converts PR classification data to reward model training samples, separate from the main data collection pipeline.
+
+**Single file processing:**
+
+```bash
+python -m swe_care.collect convert_to_rm_samples \
+    --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
+    --pr-classification-file "results/classify_prs_data/<repo_owner>__<repo_name>_pr_classification.jsonl" \
+    --output-dir "./results/rm_samples" \
+    --file-source "none"
+```
+
+**Batch processing (multiple repositories):**
+
+```bash
+python -m swe_care.collect convert_to_rm_samples \
+    --graphql-prs-data-file "results/graphql_prs_data/" \
+    --pr-classification-file "results/classify_prs_data/" \
+    --output-dir "./results/rm_samples" \
+    --file-source "base_changed_files" \
+    --jobs 4
+```
+
+This step converts classified PR data into training samples for reward models. Each sample contains:
+
+* **Problem Statement**: Extracted from closing issues or PR description using the `extract_problem_statement` utility
+* **Patch to Review**: The actual code changes (patch) from the commit
+* **Positive Reviews**: Review comments where referenced lines were changed in the merged commit AND the review thread is resolved
+* **Negative Reviews**: All other review comments
+* **Metadata**: Repository info, PR number, commit SHA, PR URL, and file source for traceability
+
+#### File Source Options
+
+The `--file-source` parameter controls how file content is included in the review samples:
+
+* **`none`** (default): Uses the default sample format without including changed files content
+* **`base_changed_files`**: Includes the content of changed files from the patch between base commit and commit to review in the review comment sample
+* **`reviewed_file`**: Includes changed file content to the sample the review comment applied to
+* **`retrieved_base_changed_files`**: Uses BM25 to retrieve relevant files from changed files based on the diff_hunk content
+* **`retrieved_all_files`**: Uses BM25 to retrieve relevant files from the entire repository based on the diff_hunk content
+
+When `--file-source` is set to any option other than `none`, review comments will include a `<code>` section containing the relevant file content, providing more context for training. The retrieval-based options (`retrieved_base_changed_files` and `retrieved_all_files`) use BM25 similarity to select the most relevant files based on the review comment's diff_hunk.
+
+The output files follow the naming pattern `<repo_owner>__<repo_name>_rm_samples.jsonl` and contain `RewardModelTrainingSample` objects with comprehensive metadata for each training instance.
 
 ## 🔄 Inference
 
