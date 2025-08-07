@@ -382,18 +382,21 @@ def convert_pr_to_samples(
             )
 
             # For "reviewed_file" option, fetch the specific file that this comment applies to
-            comment_files = {}
+            relevant_files = {}
             if file_source == "reviewed_file" and comment.path:
                 try:
                     content = fetch_repo_file_content(
                         repo, base_commit, comment.path, tokens
                     )
-                    comment_files[comment.path] = content
+                    relevant_files[comment.path] = content
                 except Exception as e:
-                    logger.warning(f"Failed to fetch content for {comment.path}: {e}")
-                    comment_files[comment.path] = ""
+                    logger.warning(
+                        f"Failed to fetch content for {comment.path}, ignoring it: {e}"
+                    )
+
             elif file_source == "base_changed_files":
-                comment_files = changed_files
+                relevant_files = changed_files
+
             elif file_source == "retrieved_base_changed_files":
                 # If file_source is 'retrieved_files', adopt BM25 to retrieve files that the reviewed file is similar to from the repo
                 def preprocess(text):
@@ -422,13 +425,14 @@ def convert_pr_to_samples(
                     # Map the relevant file paths to their contents
                     for idx in top_indices:
                         file_path = file_paths[idx]
-                        comment_files[file_path] = retrieved_files[file_path]
+                        relevant_files[file_path] = retrieved_files[file_path]
                 except Exception as e:
                     logger.warning(f"Failed to retrieved content for diff hunk: {e}")
-                    comment_files = {}
+                    relevant_files = {}
+
             elif file_source == "retrieved_all_files":
                 if comment.diff_hunk:
-                    comment_files = fetch_repo_files_content_by_retrieval(
+                    relevant_files = fetch_repo_files_content_by_retrieval(
                         repo=repo,
                         commit=base_commit,
                         query=comment.diff_hunk,
@@ -436,14 +440,15 @@ def convert_pr_to_samples(
                         max_files=5,
                     )
                 else:
-                    comment_files = {}
+                    relevant_files = {}
+
             else:
-                comment_files = {}
+                relevant_files = {}
 
             # Format the review comment using the specified template
             review_str = format_review_comment(
                 comment,
-                comment_files,
+                relevant_files,
             )
 
             if is_positive:
@@ -511,7 +516,7 @@ def get_changed_files(
 
 def format_review_comment(
     comment: LabeledReviewComment,
-    changed_files: dict[str, str],
+    relevant_files: dict[str, str],
     add_line_numbers: bool = True,
 ) -> str:
     """
@@ -519,7 +524,7 @@ def format_review_comment(
 
     Args:
         comment: LabeledReviewComment object
-        changed_files: Dictionary of changed files
+        relevant_files: Dictionary of relevant files
         add_line_numbers: Whether to add line numbers to the file content
 
     Returns:
@@ -548,9 +553,9 @@ def format_review_comment(
     prompt = ""
 
     # Format using the specified template
-    if changed_files:
+    if relevant_files:
         prompt += "<code>\n"
-        for file_path, file_content in changed_files.items():
+        for file_path, file_content in relevant_files.items():
             prompt += f"[start of {file_path}]\n"
 
             if add_line_numbers:
