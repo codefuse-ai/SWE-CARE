@@ -620,17 +620,18 @@ def fetch_repo_files_content_by_retrieval(
     repo: str,
     commit: str,
     query: str,  # e.g., "diff_hunk" or "file_path" or "problem_statement"
+    retrieval_output_dir: str | Path,
     tokens: Optional[list[str]] = None,
     max_files: int = 5,
 ) -> dict[str, str]:
     """Get the content of specific files from a repository at a specific commit using retrieval."""
     try:
         # Clone the repository to a temporary directory if the repository doesn't exist
-        if not os.path.exists(f"temp_repo/{repo.replace('/', '__')}"):
-            temp_repo_dir = "temp_repo"
-            os.makedirs(temp_repo_dir, exist_ok=True)
-            # temp_dir = tempfile.mkdtemp(dir=temp_repo_dir)
-            repo_dir = clone_repo(repo, temp_repo_dir, tokens[0] if tokens else "git")
+        if not Path(f"{retrieval_output_dir}/{repo.replace('/', '__')}").exists():
+            Path(retrieval_output_dir).mkdir(parents=True, exist_ok=True)
+            repo_dir = clone_repo(
+                repo, retrieval_output_dir, tokens[0] if tokens else "git"
+            )
 
         # Constrct the index
         python = subprocess.run("which python", shell=True, capture_output=True)
@@ -638,7 +639,7 @@ def fetch_repo_files_content_by_retrieval(
 
         index_path = make_index(
             repo_dir=repo_dir,
-            root_dir=temp_repo_dir,
+            root_dir=retrieval_output_dir,
             query="",  # Empty query to index all files
             commit=commit,
             document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS[
@@ -662,7 +663,9 @@ def fetch_repo_files_content_by_retrieval(
         if results and results.get("hits"):
             # Construct path to documents.jsonl file created during indexing
             instance_id = f"{repo.replace('/', '__')}_{commit[:8]}"
-            documents_path = Path(temp_repo_dir) / instance_id / "documents.jsonl"
+            documents_path = (
+                Path(retrieval_output_dir) / instance_id / "documents.jsonl"
+            )
 
             # Load all documents from jsonl file
             documents_dict = {}
@@ -692,9 +695,6 @@ def fetch_repo_files_content_by_retrieval(
                         f"Failed to fetch content for retrieved file {file_path}: {e}"
                     )
 
-        # Clean up temporary directory
-        # shutil.rmtree(temp_dir, ignore_errors=True)
-
         logger.info(
             f"Retrieved {len(retrieved_files)} files using retrieval for {repo}@{commit[:8]}"
         )
@@ -702,10 +702,4 @@ def fetch_repo_files_content_by_retrieval(
 
     except Exception as e:
         logger.error(f"Failed to retrieve files using search for {repo}@{commit}: {e}")
-        # Clean up on error
-        # try:
-        #     if 'temp_dir' in locals():
-        #         shutil.rmtree(temp_dir, ignore_errors=True)
-        # except:
-        #     pass
         return {}

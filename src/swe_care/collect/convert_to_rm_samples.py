@@ -41,6 +41,7 @@ def convert_to_rm_samples(
     ] = "none",
     jobs: int = 2,
     retrieval_max_files: int = 5,
+    retrieval_output_dir: Optional[Path] = None,
 ) -> None:
     """
     Convert PR classification data to reward model training samples.
@@ -53,7 +54,14 @@ def convert_to_rm_samples(
         file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         jobs: Number of parallel jobs
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
+        retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
     """
+    # Validate retrieval_output_dir requirement
+    if file_source == "retrieved_all_files" and retrieval_output_dir is None:
+        raise ValueError(
+            "retrieval_output_dir is required when file_source is 'retrieved_all_files'"
+        )
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine if inputs are files or directories
@@ -69,6 +77,7 @@ def convert_to_rm_samples(
             tokens=tokens,
             file_source=file_source,
             retrieval_max_files=retrieval_max_files,
+            retrieval_output_dir=retrieval_output_dir,
         )
     elif graphql_prs_data_file.is_dir() and pr_classification_file.is_dir():
         # Batch processing
@@ -115,6 +124,7 @@ def convert_to_rm_samples(
                     tokens=tokens,
                     file_source=file_source,
                     retrieval_max_files=retrieval_max_files,
+                    retrieval_output_dir=retrieval_output_dir,
                 ): (graphql_file, classification_file)
                 for graphql_file, classification_file in file_pairs
             }
@@ -201,6 +211,7 @@ def convert_to_rm_samples_single_file(
         "retrieved_all_files",
     ] = "none",
     retrieval_max_files: int = 5,
+    retrieval_output_dir: Optional[Path] = None,
 ) -> None:
     """
     Convert PR classification data for a single file to reward model training samples.
@@ -212,6 +223,7 @@ def convert_to_rm_samples_single_file(
         tokens: Optional list of GitHub tokens for API requests
         file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
+        retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
     """
     # Extract repo info from filename
     filename = pr_classification_file.stem
@@ -282,6 +294,7 @@ def convert_to_rm_samples_single_file(
                     repo=f"{repo_owner}/{repo_name}",
                     tokens=tokens,
                     retrieval_max_files=retrieval_max_files,
+                    retrieval_output_dir=retrieval_output_dir,
                 )
 
                 # Write samples to output file
@@ -318,6 +331,7 @@ def convert_pr_to_samples(
     repo: Optional[str] = None,
     tokens: Optional[list[str]] = None,
     retrieval_max_files: int = 5,
+    retrieval_output_dir: Optional[Path] = None,
 ) -> list[RewardModelTrainingSample]:
     """
     Convert a single PR and its classification to reward model training samples.
@@ -329,6 +343,7 @@ def convert_pr_to_samples(
         repo: Repository in format 'owner/name' (needed for file fetching when file_source is 'changed_files')
         tokens: Optional list of GitHub tokens for API requests
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
+        retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
 
     Returns:
         List of reward model training samples
@@ -441,10 +456,15 @@ def convert_pr_to_samples(
 
             elif file_source == "retrieved_all_files":
                 if comment.diff_hunk:
+                    if retrieval_output_dir is None:
+                        raise ValueError(
+                            "retrieval_output_dir is required when file_source is 'retrieved_all_files'"
+                        )
                     relevant_files = fetch_repo_files_content_by_retrieval(
                         repo=repo,
                         commit=base_commit,
                         query=comment.diff_hunk,
+                        retrieval_output_dir=retrieval_output_dir,
                         tokens=tokens,
                         max_files=retrieval_max_files,
                     )

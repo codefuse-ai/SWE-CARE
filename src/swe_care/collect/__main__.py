@@ -268,6 +268,11 @@ def get_args():
                 default=5,
                 help="Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files' (default: 5)",
             )
+            sub_parser.add_argument(
+                "--retrieval-output-dir",
+                type=Path,
+                help="Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -328,6 +333,7 @@ def main():
                     file_source=args.file_source,
                     jobs=args.jobs,
                     retrieval_max_files=args.retrieval_max_files,
+                    retrieval_output_dir=args.retrieval_output_dir,
                     **common_kwargs,
                 )
     else:

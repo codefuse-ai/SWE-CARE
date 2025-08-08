@@ -176,6 +176,20 @@ python -m swe_care.collect convert_to_rm_samples \
     --jobs 4
 ```
 
+**Using retrieval-based file sources:**
+
+```bash
+# Example with retrieved_all_files (requires --retrieval-output-dir)
+python -m swe_care.collect convert_to_rm_samples \
+    --graphql-prs-data-file "results/graphql_prs_data/" \
+    --pr-classification-file "results/classify_prs_data/" \
+    --output-dir "./results/rm_samples" \
+    --file-source "retrieved_all_files" \
+    --retrieval-output-dir "./results/retrieval_output" \
+    --retrieval-max-files 10 \
+    --jobs 2
+```
+
 This step converts classified PR data into training samples for reward models. Each sample contains:
 
 * **Problem Statement**: Extracted from closing issues or PR description using the `extract_problem_statement` utility
@@ -195,6 +209,8 @@ The `--file-source` parameter controls how file content is included in the revie
 * **`retrieved_all_files`**: Uses BM25 to retrieve relevant files from the entire repository based on the diff_hunk content
 
 When `--file-source` is set to any option other than `none`, review comments will include a `<code>` section containing the relevant file content, providing more context for training. The retrieval-based options (`retrieved_base_changed_files` and `retrieved_all_files`) use BM25 similarity to select the most relevant files based on the review comment's diff_hunk.
+
+**Note**: When using `--file-source retrieved_all_files`, you must also specify `--retrieval-output-dir` to set the directory where retrieval operations will be performed and temporary files will be stored.
 
 The output files follow the naming pattern `<repo_owner>__<repo_name>_rm_samples.jsonl` and contain `RewardModelTrainingSample` objects with comprehensive metadata for each training instance.
 
