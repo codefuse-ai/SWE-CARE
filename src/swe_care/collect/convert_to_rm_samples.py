@@ -385,9 +385,9 @@ def convert_pr_to_samples(
         pos_reviews = []
         neg_reviews = []
 
-        if (
-            file_source == "base_changed_files"
-            or file_source == "retrieved_base_changed_files"
+        if file_source in (
+            "base_changed_files",
+            "retrieved_base_changed_files",
         ):
             changed_files = get_changed_files(
                 repo=repo,
@@ -410,7 +410,7 @@ def convert_pr_to_samples(
             if file_source == "reviewed_file" and comment.path:
                 try:
                     content = fetch_repo_file_content(
-                        repo, base_commit, comment.path, tokens
+                        repo, base_commit, comment.path, tokens, patch_to_review
                     )
                     relevant_files[comment.path] = content
                 except Exception as e:
@@ -528,7 +528,9 @@ def get_changed_files(
     for file_path in changed_file_paths:
         try:
             logger.debug(f"Fetching content for {file_path}")
-            content = fetch_repo_file_content(repo, base_commit, file_path, tokens)
+            content = fetch_repo_file_content(
+                repo, base_commit, file_path, tokens, patch_to_review
+            )
             changed_files[file_path] = content
         except Exception as e:
             logger.warning(f"Failed to fetch content for {file_path}: {e}")

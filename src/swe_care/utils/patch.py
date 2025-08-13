@@ -21,8 +21,8 @@ def get_changed_file_paths(patch_content: str) -> list[str]:
             if file_path.startswith("a/"):
                 file_path = file_path[2:]  # Remove 'a/' prefix
 
-            if file_path == "/dev/null":
-                logger.debug("Skipping /dev/null file, this is a new file")
+            if file_path == "/dev/null" or patched_file.is_added_file:
+                logger.debug(f"Skipping newly created file: {patched_file.path}")
                 continue
 
             changed_files.append(file_path)
@@ -93,3 +93,55 @@ def is_line_changed_in_patch(
     """
     changed_lines = get_changed_lines_in_file(patch_content, file_path)
     return line_number in changed_lines
+
+
+def extract_new_file_content_from_patch(
+    patch_content: str, file_path: str
+) -> str | None:
+    """
+    Extract the full content of a newly created file from a patch.
+
+    Args:
+        patch_content: The patch content as a string
+        file_path: The file path to extract content for
+
+    Returns:
+        The full content of the newly created file if found, None otherwise
+    """
+    try:
+        patch_set = unidiff.PatchSet(patch_content)
+
+        for patched_file in patch_set:
+            # Check if this is the file we're interested in
+            source_file = patched_file.source_file
+            target_file = patched_file.target_file
+
+            # Remove 'a/' and 'b/' prefixes
+            if source_file.startswith("a/"):
+                source_file = source_file[2:]
+            if target_file.startswith("b/"):
+                target_file = target_file[2:]
+
+            # Check if this is a newly created file (source is /dev/null)
+            if target_file == file_path and (
+                patched_file.source_file == "/dev/null" or patched_file.is_added_file
+            ):
+                # Extract all added lines to reconstruct the file content
+                file_lines = []
+                for hunk in patched_file:
+                    for line in hunk:
+                        if line.is_added:
+                            # Remove the '+' prefix and keep the content
+                            content = line.value
+                            # line.value includes the newline character at the end for most lines
+                            file_lines.append(content)
+
+                # Join all lines to form the complete file content
+                return "".join(file_lines)
+
+        return None
+    except Exception as e:
+        logger.warning(
+            f"Failed to extract new file content for {file_path} from patch: {e}"
+        )
+        return None

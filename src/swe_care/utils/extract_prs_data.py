@@ -18,7 +18,11 @@ from swe_care.utils.bm25_retrieval import (
     search,
 )
 from swe_care.utils.github import GitHubAPI
-from swe_care.utils.patch import is_line_changed_in_patch
+from swe_care.utils.patch import (
+    extract_new_file_content_from_patch,
+    get_changed_file_paths,
+    is_line_changed_in_patch,
+)
 
 
 def cached_with_tuple_conversion(func):
@@ -593,11 +597,54 @@ def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
 
 @cached_with_tuple_conversion
 def fetch_repo_file_content(
-    repo: str, commit: str, file_path: str, tokens: Optional[list[str]] = None
+    repo: str,
+    commit: str,
+    file_path: str,
+    tokens: Optional[list[str]] = None,
+    patch: Optional[str] = None,
 ) -> str:
-    """Get the content of a file from a repository at a specific commit with caching."""
-    github_api = GitHubAPI(tokens=tokens)
-    return github_api.get_file_content(repo, commit, file_path)
+    """
+    Get the content of a file from a repository at a specific commit with caching.
+
+    Args:
+        repo: Repository name in format 'owner/name'
+        commit: Commit SHA to fetch file from
+        file_path: Path to the file in the repository
+        tokens: Optional list of GitHub tokens for API access
+        patch: Optional patch content to handle newly created files
+
+    Returns:
+        The content of the file as a string
+
+    Raises:
+        Exception: If file cannot be fetched and is not a new file in the patch
+    """
+    # If patch is provided, check if this is a newly created file
+    if patch is not None:
+        changed_files = get_changed_file_paths(patch)
+        if file_path not in changed_files:
+            # This might be a newly created file, try to extract from patch
+            new_file_content = extract_new_file_content_from_patch(patch, file_path)
+            logger.info(f"Extracted new file content from patch for {file_path}")
+            if new_file_content is not None:
+                return new_file_content
+
+    # Try to fetch from GitHub API (existing logic)
+    try:
+        github_api = GitHubAPI(tokens=tokens)
+        return github_api.get_file_content(repo, commit, file_path)
+    except Exception as e:
+        # If patch is provided and GitHub API fails, try extracting from patch as fallback
+        if patch is not None:
+            logger.warning(
+                f"Failed to fetch {file_path} from GitHub API, trying patch extraction: {e}"
+            )
+            new_file_content = extract_new_file_content_from_patch(patch, file_path)
+            if new_file_content is not None:
+                return new_file_content
+
+        # Re-raise the original exception if patch extraction also fails or patch not provided
+        raise e
 
 
 def fetch_local_file_content(repo_dir: str, file_path: str) -> str:
