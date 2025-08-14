@@ -25,6 +25,7 @@ from swe_care.utils.extract_prs_data import (
     fetch_repo_files_content_by_retrieval,
 )
 from swe_care.utils.patch import get_changed_file_paths
+from swe_care.utils.template import render_template
 
 
 def convert_to_rm_samples(
@@ -581,28 +582,13 @@ def format_review_comment(
     # Extract review comment text
     review_comment = comment.text.strip() or ""
 
-    prompt = ""
-
-    # Format using the specified template
-    if relevant_files:
-        prompt += "<code>\n"
-        for file_path, file_content in relevant_files.items():
-            prompt += f"[start of {file_path}]\n"
-
-            if add_line_numbers:
-                lines = file_content.split("\n")
-                numbered_lines = [f"{i + 1:4d} {line}" for i, line in enumerate(lines)]
-                numbered_content = "\n".join(numbered_lines)
-                prompt += f"{numbered_content}\n"
-            else:
-                prompt += f"{file_content}\n"
-
-            prompt += f"[end of {file_path}]\n"
-        prompt += "</code>\n"
-
-        prompt += f"<diff_hunk>\n{diff_hunk}\n</diff_hunk>\n<path>{path}</path>\n<line>{line}</line>\n<review_comment>\n{review_comment}\n</review_comment>"
-    else:
-        # Use current template without file content
-        prompt = f"<diff_hunk>\n{diff_hunk}\n</diff_hunk>\n<path>{path}</path>\n<line>{line}</line>\n<review_comment>\n{review_comment}\n</review_comment>"
-
-    return prompt
+    # Render the template with the provided context
+    return render_template(
+        "rm_sample.j2",
+        relevant_files=relevant_files,
+        diff_hunk=diff_hunk,
+        path=path,
+        line=line,
+        review_comment=review_comment,
+        add_line_numbers=add_line_numbers,
+    )

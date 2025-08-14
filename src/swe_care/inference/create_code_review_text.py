@@ -19,44 +19,7 @@ from swe_care.schema.inference import CodeReviewInferenceInstance
 from swe_care.utils.extract_prs_data import fetch_repo_file_content
 from swe_care.utils.load import load_code_review_dataset
 from swe_care.utils.patch import get_changed_file_paths
-
-PROMPT_PREFIX = """You will be provided with 1) a partial code base, 2) an issue statement explaining a problem to resolve, and 3) a patch addressing the issue.
-<issue>
-{problem_statement}
-</issue>
-"""
-
-
-REVIEW_PROMPT = """I need you to comprehensively review the above patch with respect to the given issue from multiple dimensions such as functional implementation, code quality, and defects. Generate a report in the following format.
-<review>
-## Function
-Briefly describe the main purpose and implemented functionality of this patch. Specifically, does this patch address the issue?
-
-## Complexity
-Is the patch more complex than it should be? Check it at every level - lines, functions, classes.
-
-## Style
-Does the patch follow the programming conventions of the original code? Does it pick good names for newly introduced variables, functions, classes, and files?
-
-## Documentation
-Does the patch provide clear and necessary comments? If the patch changes how users build, test, interact with, or release code, does it also update associated documentation?
-
-## Defects
-If there are any defects in the patch, point out their locations (file path and line number) and provide improvement suggestions in the following format:
-<defect>
-file_path: file path of defect 1 in the patch
-line: line number of defect 1 in the patch
-suggestion: suggestion for defect 1
-</defect>
-<defect>
-file_path: file path of defect 2 in the patch
-line: line number of defect 2 in the patch
-suggestion: suggestion for defect 2
-</defect>
-...
-Note:
-- If there is no defect, output "None" in this section.
-</review>"""
+from swe_care.utils.template import render_template
 
 
 def create_code_review_text(
@@ -297,25 +260,11 @@ def generate_context_text(
     if not files:
         return ""
 
-    prompt = PROMPT_PREFIX.format(problem_statement=instance.problem_statement)
-
-    prompt += "<code>\n"
-    for file_path, file_content in files.items():
-        prompt += f"[start of {file_path}]\n"
-
-        if add_line_numbers:
-            lines = file_content.split("\n")
-            numbered_lines = [f"{i + 1:4d} {line}" for i, line in enumerate(lines)]
-            numbered_content = "\n".join(numbered_lines)
-            prompt += f"{numbered_content}\n"
-        else:
-            prompt += f"{file_content}\n"
-
-        prompt += f"[end of {file_path}]\n"
-    prompt += "</code>\n"
-
-    prompt += f"<patch>\n{instance.commit_to_review.patch_to_review}\n</patch>\n"
-
-    prompt += REVIEW_PROMPT
-
-    return prompt
+    # Render the template with the provided context
+    return render_template(
+        "code_review_text_prompt.j2",
+        problem_statement=instance.problem_statement,
+        files=files,
+        patch=instance.commit_to_review.patch_to_review,
+        add_line_numbers=add_line_numbers,
+    )
