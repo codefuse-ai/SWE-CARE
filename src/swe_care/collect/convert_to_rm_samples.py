@@ -43,6 +43,7 @@ def convert_to_rm_samples(
     jobs: int = 2,
     retrieval_max_files: int = 5,
     retrieval_output_dir: Optional[Path] = None,
+    skip_existing: bool = False,
 ) -> None:
     """
     Convert PR classification data to reward model training samples.
@@ -56,6 +57,7 @@ def convert_to_rm_samples(
         jobs: Number of parallel jobs
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
         retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
+        skip_existing: Skip processing existing PR (identified by PR number) in existing repo
     """
     # Validate retrieval_output_dir requirement
     if file_source == "retrieved_all_files" and retrieval_output_dir is None:
@@ -79,6 +81,7 @@ def convert_to_rm_samples(
             file_source=file_source,
             retrieval_max_files=retrieval_max_files,
             retrieval_output_dir=retrieval_output_dir,
+            skip_existing=skip_existing,
         )
     elif graphql_prs_data_file.is_dir() and pr_classification_file.is_dir():
         # Batch processing
@@ -126,6 +129,7 @@ def convert_to_rm_samples(
                     file_source=file_source,
                     retrieval_max_files=retrieval_max_files,
                     retrieval_output_dir=retrieval_output_dir,
+                    skip_existing=skip_existing,
                 ): (graphql_file, classification_file)
                 for graphql_file, classification_file in file_pairs
             }
@@ -213,6 +217,7 @@ def convert_to_rm_samples_single_file(
     ] = "none",
     retrieval_max_files: int = 5,
     retrieval_output_dir: Optional[Path] = None,
+    skip_existing: bool = False,
 ) -> None:
     """
     Convert PR classification data for a single file to reward model training samples.
@@ -225,6 +230,7 @@ def convert_to_rm_samples_single_file(
         file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
         retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
+        skip_existing: Skip processing existing PR (identified by PR number) in existing repo
     """
     # Extract repo info from filename
     filename = pr_classification_file.stem
@@ -244,6 +250,22 @@ def convert_to_rm_samples_single_file(
     output_file = output_dir / output_filename
 
     logger.info(f"Processing {repo_owner}/{repo_name} -> {output_file}")
+
+    # Load existing PR numbers from output file if skip_existing is True
+    existing_pr_numbers: set[int] = set()
+    if skip_existing and output_file.exists():
+        logger.info(f"Loading existing PR numbers from {output_file}")
+        with open(output_file, "r") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        sample = RewardModelTrainingSample.from_json(line.strip())
+                        existing_pr_numbers.add(sample.metadata.pr_number)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse line in {output_file}: {e}")
+        logger.info(
+            f"Found {len(existing_pr_numbers)} existing PR numbers to skip for {repo_owner}/{repo_name}"
+        )
 
     # Load PR classification data
     pr_classifications: list[PRClassification] = []
@@ -265,9 +287,12 @@ def convert_to_rm_samples_single_file(
 
     processed_samples = 0
 
+    # Determine file mode based on skip_existing
+    file_mode = "a" if skip_existing and output_file.exists() else "w"
+
     with (
         open(graphql_prs_data_file, "r") as f,
-        open(output_file, "w") as out_f,
+        open(output_file, file_mode) as out_f,
         tqdm(
             total=total_lines,
             desc=f"Processing {repo_owner}/{repo_name}",
@@ -286,6 +311,14 @@ def convert_to_rm_samples_single_file(
                     continue
 
                 pr_classification = pr_classification_map[pr_url]
+
+                # Skip if PR already exists in output file
+                if skip_existing and pr_classification.pr_number in existing_pr_numbers:
+                    logger.debug(
+                        f"Skipping existing PR #{pr_classification.pr_number} for {repo_owner}/{repo_name}"
+                    )
+                    pbar.update(1)
+                    continue
 
                 # Convert PR data and classification to reward model samples
                 rm_samples = convert_pr_to_samples(

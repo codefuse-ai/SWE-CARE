@@ -273,6 +273,12 @@ def get_args():
                 type=Path,
                 help="Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')",
             )
+            sub_parser.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=False,
+                help="Skip processing existing PR (identified by PR number) in existing repo",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -334,6 +340,7 @@ def main():
                     jobs=args.jobs,
                     retrieval_max_files=args.retrieval_max_files,
                     retrieval_output_dir=args.retrieval_output_dir,
+                    skip_existing=args.skip_existing,
                     **common_kwargs,
                 )
     else:
