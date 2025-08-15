@@ -467,10 +467,13 @@ def classify_prs_data(
     if graphql_prs_data_file.is_file():
         # Single file processing
         logger.info(f"Processing single file: {graphql_prs_data_file}")
-        classify_prs_data_single_file(
+        prs_count, commits_count, comments_count = classify_prs_data_single_file(
             graphql_prs_data_file=graphql_prs_data_file,
             output_dir=output_dir,
             tokens=tokens,
+        )
+        logger.info(
+            f"Completed: {prs_count} PRs, {commits_count} commits, {comments_count} comments"
         )
     elif graphql_prs_data_file.is_dir():
         # Batch processing
@@ -500,35 +503,53 @@ def classify_prs_data(
                 for file_path in graphql_files
             }
 
+            # Calculate total PRs to process (estimate based on file sizes)
+            total_prs_estimate = 0
+            for file_path in graphql_files:
+                with open(file_path, "r") as f:
+                    total_prs_estimate += sum(1 for _ in f)
+
             # Process completed tasks with progress bar
             with tqdm(
-                total=len(graphql_files),
+                total=total_prs_estimate,
                 desc=f"Classifying PRs data ({jobs} threads)",
+                unit="PR",
             ) as pbar:
                 successful_files = 0
                 failed_files = 0
+                total_prs_processed = 0
+                total_commits_processed = 0
+                total_comments_processed = 0
 
                 for future in as_completed(future_to_file):
                     file_path = future_to_file[future]
+                    prs_count = 0
 
                     try:
-                        future.result()
+                        prs_count, commits_count, comments_count = future.result()
                         successful_files += 1
+                        total_prs_processed += prs_count
+                        total_commits_processed += commits_count
+                        total_comments_processed += comments_count
                         logger.debug(f"Successfully processed {file_path}")
                     except Exception as e:
                         failed_files += 1
                         logger.error(f"Failed to process {file_path}: {e}")
 
-                    pbar.update(1)
+                    pbar.update(prs_count)
                     pbar.set_postfix(
                         {
-                            "success": successful_files,
-                            "failed": failed_files,
+                            "files": f"{successful_files}/{len(graphql_files)}",
+                            "commits": total_commits_processed,
+                            "comments": total_comments_processed,
                         }
                     )
 
                 logger.info(
                     f"Classification complete: {successful_files} successful, {failed_files} failed"
+                )
+                logger.info(
+                    f"Total processed: {total_prs_processed} PRs, {total_commits_processed} commits, {total_comments_processed} comments"
                 )
     else:
         raise ValueError(f"Invalid path: {graphql_prs_data_file}")
@@ -538,7 +559,7 @@ def classify_prs_data_single_file(
     graphql_prs_data_file: Path,
     output_dir: Path,
     tokens: Optional[list[str]] = None,
-) -> None:
+) -> tuple[int, int, int]:
     """
     Classify PR data for a single GraphQL PRs data file.
 
@@ -546,6 +567,9 @@ def classify_prs_data_single_file(
         graphql_prs_data_file: Path to GraphQL PRs data file
         output_dir: Output directory
         tokens: GitHub API tokens
+
+    Returns:
+        Tuple of (processed_prs, total_commits, total_comments)
     """
     # Extract repo info from filename
     filename = graphql_prs_data_file.stem
@@ -625,6 +649,8 @@ def classify_prs_data_single_file(
     logger.info(
         f"Processed {processed_prs} PRs, {total_commits} commits, {total_comments} comments for {repo}"
     )
+
+    return processed_prs, total_commits, total_comments
 
 
 def classify_pr_data(

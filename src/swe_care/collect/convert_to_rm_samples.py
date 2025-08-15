@@ -73,7 +73,7 @@ def convert_to_rm_samples(
         logger.info(
             f"Processing single file pair: {graphql_prs_data_file} & {pr_classification_file}"
         )
-        convert_to_rm_samples_single_file(
+        samples_count = convert_to_rm_samples_single_file(
             graphql_prs_data_file=graphql_prs_data_file,
             pr_classification_file=pr_classification_file,
             output_dir=output_dir,
@@ -83,6 +83,7 @@ def convert_to_rm_samples(
             retrieval_output_dir=retrieval_output_dir,
             skip_existing=skip_existing,
         )
+        logger.info(f"Completed: {samples_count} RM samples generated")
     elif graphql_prs_data_file.is_dir() and pr_classification_file.is_dir():
         # Batch processing
         logger.info(
@@ -134,35 +135,54 @@ def convert_to_rm_samples(
                 for graphql_file, classification_file in file_pairs
             }
 
+            # Calculate total PRs to process (estimate based on file sizes)
+            total_prs_estimate = 0
+            for graphql_file, _ in file_pairs:
+                with open(graphql_file, "r") as f:
+                    total_prs_estimate += sum(1 for _ in f)
+
             # Process completed tasks with progress bar
             with tqdm(
-                total=len(file_pairs),
+                total=total_prs_estimate,
                 desc=f"Converting to RM samples ({jobs} threads)",
+                unit="PR",
             ) as pbar:
                 successful_files = 0
                 failed_files = 0
+                total_samples_generated = 0
+                prs_processed = 0
 
                 for future in as_completed(future_to_file):
                     graphql_file, classification_file = future_to_file[future]
+                    samples_count = 0
+
+                    # Count PRs in this file for progress update
+                    with open(graphql_file, "r") as f:
+                        file_prs = sum(1 for _ in f)
 
                     try:
-                        future.result()
+                        samples_count = future.result()
                         successful_files += 1
+                        total_samples_generated += samples_count
                         logger.debug(f"Successfully processed {graphql_file}")
                     except Exception as e:
                         failed_files += 1
                         logger.error(f"Failed to process {graphql_file}: {e}")
 
-                    pbar.update(1)
+                    prs_processed += file_prs
+                    pbar.update(file_prs)
                     pbar.set_postfix(
                         {
-                            "success": successful_files,
-                            "failed": failed_files,
+                            "files": f"{successful_files}/{len(file_pairs)}",
+                            "samples": total_samples_generated,
                         }
                     )
 
                 logger.info(
                     f"Conversion complete: {successful_files} successful, {failed_files} failed"
+                )
+                logger.info(
+                    f"Total generated: {total_samples_generated} RM samples from {prs_processed} PRs"
                 )
     else:
         raise ValueError(
@@ -218,7 +238,7 @@ def convert_to_rm_samples_single_file(
     retrieval_max_files: int = 5,
     retrieval_output_dir: Optional[Path] = None,
     skip_existing: bool = False,
-) -> None:
+) -> int:
     """
     Convert PR classification data for a single file to reward model training samples.
 
@@ -231,6 +251,9 @@ def convert_to_rm_samples_single_file(
         retrieval_max_files: Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files'
         retrieval_output_dir: Output directory for retrieval operations when file_source is 'retrieved_all_files' (required when file_source is 'retrieved_all_files')
         skip_existing: Skip processing existing PR (identified by PR number) in existing repo
+
+    Returns:
+        Number of RM samples generated
     """
     # Extract repo info from filename
     filename = pr_classification_file.stem
@@ -296,7 +319,7 @@ def convert_to_rm_samples_single_file(
         tqdm(
             total=total_lines,
             desc=f"Processing {repo_owner}/{repo_name}",
-            colour="blue",
+            colour="green",
             unit="PR",
         ) as pbar,
     ):
@@ -350,6 +373,8 @@ def convert_to_rm_samples_single_file(
     logger.info(
         f"Processed {processed_samples} reward model samples for {repo_owner}/{repo_name}"
     )
+
+    return processed_samples
 
 
 def convert_pr_to_samples(

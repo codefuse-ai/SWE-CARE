@@ -74,7 +74,7 @@ def build_code_review_dataset_single_file(
     model_client: BaseModelClient,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
-) -> None:
+) -> tuple[int, int]:
     """
     Build code review task dataset for a single pair of files.
 
@@ -88,6 +88,9 @@ def build_code_review_dataset_single_file(
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id.
                       If False, replace existing instance_id data.
+
+    Returns:
+        Tuple of (processed_count, skipped_count)
     """
     _pr_classifications: list[PRClassification] = [
         PRClassification.from_json(e)
@@ -108,7 +111,10 @@ def build_code_review_dataset_single_file(
 
     with open(graphql_prs_data_file, "r") as input_f:
         for line in tqdm(
-            input_f, desc=f"Processing {graphql_prs_data_file.name}", total=total_lines
+            input_f,
+            desc=f"Processing {graphql_prs_data_file.name}",
+            total=total_lines,
+            colour="green",
         ):
             try:
                 pr_data = json.loads(line.strip())
@@ -307,6 +313,8 @@ def build_code_review_dataset_single_file(
         f"Completed processing {graphql_prs_data_file.name}: {processed_count} processed, {skipped_count} skipped"
     )
 
+    return processed_count, skipped_count
+
 
 def find_matching_classification_file(
     graphql_data_file: Path,
@@ -408,7 +416,7 @@ def build_code_review_dataset(
         logger.info(
             f"Processing single file pair: {graphql_prs_data_file} & {pr_classification_file}"
         )
-        build_code_review_dataset_single_file(
+        processed_count, skipped_count = build_code_review_dataset_single_file(
             graphql_prs_data_file,
             pr_classification_file,
             output_file,
@@ -417,6 +425,9 @@ def build_code_review_dataset(
             model_client,
             tokens,
             skip_existing,
+        )
+        logger.info(
+            f"Completed: {processed_count} instances created, {skipped_count} skipped"
         )
     elif graphql_prs_data_file.is_dir() and pr_classification_file.is_dir():
         # Directory processing with recursive search
@@ -450,6 +461,12 @@ def build_code_review_dataset(
 
         logger.info(f"Found {len(file_pairs)} file pairs to process with {jobs} jobs")
 
+        # Calculate total PRs to process (estimate based on file sizes)
+        total_prs_estimate = 0
+        for graphql_file, _ in file_pairs:
+            with open(graphql_file, "r") as f:
+                total_prs_estimate += sum(1 for _ in f)
+
         # Process file pairs in parallel
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             # Submit all tasks
@@ -468,14 +485,49 @@ def build_code_review_dataset(
                 for graphql_file, classification_file in file_pairs
             }
 
-            # Process completed tasks
-            for future in as_completed(future_to_files):
-                graphql_file, classification_file = future_to_files[future]
-                try:
-                    future.result()
-                    logger.success(f"Successfully processed {graphql_file.name}")
-                except Exception as e:
-                    logger.error(f"Error processing {graphql_file.name}: {e}")
+            # Process completed tasks with progress bar
+            with tqdm(
+                total=total_prs_estimate,
+                desc=f"Building code review dataset ({jobs} threads)",
+                unit="PR",
+            ) as pbar:
+                successful_files = 0
+                failed_files = 0
+                total_processed = 0
+                total_skipped = 0
+
+                for future in as_completed(future_to_files):
+                    graphql_file, classification_file = future_to_files[future]
+
+                    # Count PRs in this file for progress update
+                    with open(graphql_file, "r") as f:
+                        file_prs = sum(1 for _ in f)
+
+                    try:
+                        processed_count, skipped_count = future.result()
+                        successful_files += 1
+                        total_processed += processed_count
+                        total_skipped += skipped_count
+                        logger.debug(f"Successfully processed {graphql_file.name}")
+                    except Exception as e:
+                        failed_files += 1
+                        logger.error(f"Error processing {graphql_file.name}: {e}")
+
+                    pbar.update(file_prs)
+                    pbar.set_postfix(
+                        {
+                            "files": f"{successful_files}/{len(file_pairs)}",
+                            "created": total_processed,
+                            "skipped": total_skipped,
+                        }
+                    )
+
+                logger.info(
+                    f"Dataset building complete: {successful_files} successful, {failed_files} failed"
+                )
+                logger.info(
+                    f"Total: {total_processed} instances created, {total_skipped} skipped"
+                )
     else:
         raise ValueError(
             "Both graphql_prs_data_file and pr_classification_file must be either files or directories"
