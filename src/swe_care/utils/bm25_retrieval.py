@@ -301,7 +301,6 @@ def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
 def make_index(
     repo_dir,
     root_dir,
-    query,
     commit,
     document_encoding_func,
     python,
@@ -313,7 +312,6 @@ def make_index(
     Args:
         repo_dir (str): The path to the repository directory.
         root_dir (str): The path to the root directory.
-        query (str): The query to use for retrieval.
         commit (str): The commit hash to use for retrieval.
         document_encoding_func (function): The function to use for encoding documents.
         python (str): The path to the Python executable.
@@ -525,11 +523,9 @@ def get_index_paths_worker(
     instance_id = instance["instance_id"]
     try:
         repo_dir = clone_repo(repo, root_dir_name, token)
-        query = instance["problem_statement"]
         index_path = make_index(
             repo_dir=repo_dir,
             root_dir=root_dir_name,
-            query=query,
             commit=commit,
             document_encoding_func=document_encoding_func,
             python=python,

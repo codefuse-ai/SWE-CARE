@@ -687,7 +687,6 @@ def fetch_repo_files_content_by_retrieval(
         index_path = make_index(
             repo_dir=repo_dir,
             root_dir=retrieval_output_dir,
-            query="",  # Empty query to index all files
             commit=commit,
             document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
             python=python,
