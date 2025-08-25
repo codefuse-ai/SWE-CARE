@@ -63,6 +63,12 @@ class ContextManager:
         pass
 
 
+def contents_only(filename, relative_path):
+    """Returns the contents of a file."""
+    with open(filename) as f:
+        return f.read()
+
+
 def file_name_and_contents(filename, relative_path):
     """Returns the contents of a file along with its relative path."""
     text = relative_path + "\n"
@@ -139,6 +145,7 @@ def file_name_and_docs_jedi(filename, relative_path):
 
 
 DOCUMENT_ENCODING_FUNCTIONS = {
+    "contents_only": contents_only,
     "file_name_and_contents": file_name_and_contents,
     "file_name_and_documentation": file_name_and_documentation,
     "file_name_and_docs_jedi": file_name_and_docs_jedi,
@@ -157,9 +164,11 @@ def list_files(root_dir, include_tests=False):
     """Lists all Python files in a directory, optionally excluding test files."""
     files = []
     for filename in Path(root_dir).rglob("*.py"):
-        if not include_tests and is_test(filename.as_posix()):
+        # Only check the relative path for test patterns, not the full path
+        relative_path = filename.relative_to(root_dir).as_posix()
+        if not include_tests and is_test(relative_path):
             continue
-        files.append(filename.relative_to(root_dir).as_posix())
+        files.append(relative_path)
     return files
 
 

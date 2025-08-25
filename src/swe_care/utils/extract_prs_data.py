@@ -689,9 +689,7 @@ def fetch_repo_files_content_by_retrieval(
             root_dir=retrieval_output_dir,
             query="",  # Empty query to index all files
             commit=commit,
-            document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS[
-                "file_name_and_contents"
-            ],
+            document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
             python=python,
             instance_id=f"{repo.replace('/', '__')}_{commit[:8]}",
         )
