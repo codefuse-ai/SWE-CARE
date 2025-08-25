@@ -54,23 +54,21 @@ class ContextManager:
 
     def __enter__(self):
         # Extract repository name from the path
-        # The repo path is typically something like /path/to/repo__owner__name
+        # The repo path is typically something like /path/to/repos/owner__repo
         repo_basename = os.path.basename(self.original_repo_path)
-        if repo_basename.startswith("repo__"):
-            # Remove the "repo__" prefix to get owner__name
-            repo_identifier = repo_basename[6:]  # Skip "repo__"
-        else:
-            # Fallback to using the basename as-is
-            repo_identifier = repo_basename
 
-        # Create a worktree name in the format: worktree__owner__repo_commit
-        worktree_name = f"worktree__{repo_identifier}_{self.base_commit[:8]}"
+        # Create worktrees subdirectory
+        worktrees_dir = Path(self.root_dir) / "worktrees"
+        worktrees_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create worktree path in root_dir (ensure absolute path)
-        self.worktree_path = os.path.abspath(os.path.join(self.root_dir, worktree_name))
+        # Create a worktree name in the format: owner__repo_commit
+        worktree_name = f"{repo_basename}_{self.base_commit[:8]}"
+
+        # Create worktree path in worktrees subdirectory (ensure absolute path)
+        self.worktree_path = os.path.abspath(os.path.join(worktrees_dir, worktree_name))
 
         # Use file lock to prevent concurrent worktree creation
-        worktree_lock_path = Path(self.root_dir) / f".{worktree_name}.lock"
+        worktree_lock_path = worktrees_dir / f"{worktree_name}.lock"
         worktree_lock = FileLock(str(worktree_lock_path))
 
         with worktree_lock:
@@ -254,10 +252,14 @@ def clone_repo(repo, root_dir, token):
     Returns:
         Path: The path to the cloned repository directory.
     """
-    repo_dir = Path(root_dir, f"repo__{repo.replace('/', '__')}")
+    # Create repos subdirectory
+    repos_dir = Path(root_dir) / "repos"
+    repos_dir.mkdir(parents=True, exist_ok=True)
+
+    repo_dir = repos_dir / f"{repo.replace('/', '__')}"
 
     # Use file lock to prevent concurrent cloning of the same repository
-    clone_lock_path = repo_dir.parent / f".{repo_dir.name}.clone.lock"
+    clone_lock_path = repos_dir / f"{repo_dir.name}.lock"
     clone_lock = FileLock(str(clone_lock_path))
 
     with clone_lock:
@@ -320,17 +322,29 @@ def make_index(
     Returns:
         index_path (Path): The path to the built index.
     """
-    index_path = Path(root_dir, f"index__{str(instance_id)}", "index")
+    # Create indexes subdirectory
+    indexes_dir = Path(root_dir) / "indexes"
+    indexes_dir.mkdir(parents=True, exist_ok=True)
+
+    # Extract repo info from instance_id (format: owner__repo_commit)
+    index_name = str(instance_id)
+    index_path = indexes_dir / index_name / "index"
 
     # Use file lock to prevent concurrent index creation for the same instance
-    index_lock_path = index_path.parent.parent / f".{instance_id}.index.lock"
+    index_lock_path = indexes_dir / f"{index_name}.lock"
     index_lock = FileLock(str(index_lock_path))
 
     with index_lock:
         if index_path.exists():
             return index_path
         thread_prefix = f"(pid {os.getpid()}) "
-        documents_path = Path(root_dir, instance_id, "documents.jsonl")
+
+        # Create documents subdirectory
+        documents_dir = Path(root_dir) / "documents"
+        documents_dir.mkdir(parents=True, exist_ok=True)
+
+        documents_path = Path(documents_dir, instance_id, "documents.jsonl")
+
         if not documents_path.parent.exists():
             documents_path.parent.mkdir(parents=True, exist_ok=True)
         documents = build_documents(repo_dir, commit, document_encoding_func, root_dir)
