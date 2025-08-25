@@ -16,41 +16,109 @@ from tqdm.auto import tqdm
 
 class ContextManager:
     """
-    A context manager for managing a Git repository at a specific commit.
+    A context manager for managing a Git repository at a specific commit using git worktree.
+
+    This implementation creates a separate worktree for each thread/process to avoid
+    conflicts when multiple threads need to access different commits of the same repository.
 
     Args:
         repo_path (str): The path to the Git repository.
         base_commit (str): The commit hash to switch to.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
+        root_dir (str, optional): Root directory to create worktrees in. If not provided,
+                                  uses the parent directory of the repository.
 
     Attributes:
         repo_path (str): The path to the Git repository.
         base_commit (str): The commit hash to switch to.
         verbose (bool): Whether to print verbose output.
         repo (git.Repo): The Git repository object.
+        worktree_path (str): Path to the worktree.
+        original_repo_path (str): Original repository path before worktree creation.
+        root_dir (str): Root directory for worktrees.
 
     Methods:
-        __enter__(): Switches to the specified commit and returns the context manager object.
+        __enter__(): Creates or reuses a worktree at the specified commit and returns the context manager object.
         get_readme_files(): Returns a list of filenames for all README files in the repository.
-        __exit__(exc_type, exc_val, exc_tb): Does nothing.
+        __exit__(exc_type, exc_val, exc_tb): Does not remove the worktree (reusable).
     """
 
-    def __init__(self, repo_path, base_commit, verbose=False):
-        self.repo_path = Path(repo_path).resolve().as_posix()
+    def __init__(self, repo_path, base_commit, verbose=False, root_dir=None):
+        self.original_repo_path = Path(repo_path).resolve().as_posix()
         self.base_commit = base_commit
         self.verbose = verbose
-        self.repo = Repo(self.repo_path)
+        self.repo = Repo(self.original_repo_path)
+        self.worktree_path = None
+        # Use provided root_dir or default to parent of repo
+        self.root_dir = root_dir or Path(self.original_repo_path).parent.as_posix()
 
     def __enter__(self):
-        if self.verbose:
-            logger.debug(f"Switching to {self.base_commit}")
-        try:
-            self.repo.git.reset("--hard", self.base_commit)
-            self.repo.git.clean("-fdxq")
-        except Exception as e:
-            logger.error(f"Failed to switch to {self.base_commit}")
-            logger.error(e)
-            raise e
+        # Extract repository name from the path
+        # The repo path is typically something like /path/to/repo__owner__name
+        repo_basename = os.path.basename(self.original_repo_path)
+        if repo_basename.startswith("repo__"):
+            # Remove the "repo__" prefix to get owner__name
+            repo_identifier = repo_basename[6:]  # Skip "repo__"
+        else:
+            # Fallback to using the basename as-is
+            repo_identifier = repo_basename
+
+        # Create a worktree name in the format: worktree__owner__repo_commit
+        worktree_name = f"worktree__{repo_identifier}_{self.base_commit[:8]}"
+
+        # Create worktree path in root_dir (ensure absolute path)
+        self.worktree_path = os.path.abspath(os.path.join(self.root_dir, worktree_name))
+
+        # Use file lock to prevent concurrent worktree creation
+        worktree_lock_path = Path(self.root_dir) / f".{worktree_name}.lock"
+        worktree_lock = FileLock(str(worktree_lock_path))
+
+        with worktree_lock:
+            # Check if worktree already exists
+            if os.path.exists(self.worktree_path):
+                if self.verbose:
+                    logger.debug(f"Reusing existing worktree at {self.worktree_path}")
+
+                # Update repo_path to point to the existing worktree
+                self.repo_path = self.worktree_path
+                self.repo = Repo(self.worktree_path)
+
+                # Ensure we're at the correct commit
+                try:
+                    current_commit = self.repo.head.commit.hexsha
+                    if not current_commit.startswith(self.base_commit[:8]):
+                        # Reset to the correct commit if needed
+                        self.repo.git.reset("--hard", self.base_commit)
+                        self.repo.git.clean("-fdxq")
+                except Exception as e:
+                    logger.warning(f"Failed to verify/reset worktree commit: {e}")
+            else:
+                # Create new worktree
+                if self.verbose:
+                    logger.debug(
+                        f"Creating new worktree at {self.worktree_path} for commit {self.base_commit}"
+                    )
+
+                try:
+                    # Ensure parent directory exists
+                    os.makedirs(os.path.dirname(self.worktree_path), exist_ok=True)
+
+                    # Create a new worktree at the specified commit
+                    self.repo.git.worktree(
+                        "add", "-f", self.worktree_path, self.base_commit
+                    )
+
+                    # Update repo_path to point to the worktree
+                    self.repo_path = self.worktree_path
+
+                    # Create a new Repo object for the worktree
+                    self.repo = Repo(self.worktree_path)
+
+                except Exception as e:
+                    logger.error(f"Failed to create worktree for {self.base_commit}")
+                    logger.error(e)
+                    raise e
+
         return self
 
     def get_readme_files(self):
@@ -60,6 +128,8 @@ class ContextManager:
         return files
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Don't remove the worktree - keep it for reuse
+        # This improves performance when the same commit is accessed multiple times
         pass
 
 
@@ -186,14 +256,19 @@ def clone_repo(repo, root_dir, token):
     """
     repo_dir = Path(root_dir, f"repo__{repo.replace('/', '__')}")
 
-    if not repo_dir.exists():
-        repo_url = f"https://{token}@github.com/{repo}.git"
-        logger.info(f"Cloning {repo} {os.getpid()}")
-        Repo.clone_from(repo_url, repo_dir)
+    # Use file lock to prevent concurrent cloning of the same repository
+    clone_lock_path = repo_dir.parent / f".{repo_dir.name}.clone.lock"
+    clone_lock = FileLock(str(clone_lock_path))
+
+    with clone_lock:
+        if not repo_dir.exists():
+            repo_url = f"https://{token}@github.com/{repo}.git"
+            logger.info(f"Cloning {repo} {os.getpid()}")
+            Repo.clone_from(repo_url, repo_dir)
     return repo_dir
 
 
-def build_documents(repo_dir, commit, document_encoding_func):
+def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
     """
     Builds a dictionary of documents from a given repository directory and commit.
 
@@ -201,18 +276,21 @@ def build_documents(repo_dir, commit, document_encoding_func):
         repo_dir (str): The path to the repository directory.
         commit (str): The commit hash to use.
         document_encoding_func (function): A function that takes a filename and a relative path and returns the encoded document text.
+        root_dir (str, optional): Root directory for worktrees.
 
     Returns:
         dict: A dictionary where the keys are the relative paths of the documents and the values are the encoded document text.
     """
     documents = dict()
-    with ContextManager(repo_dir, commit):
+    with ContextManager(repo_dir, commit, root_dir=root_dir) as ctx:
         filenames = list_files(
-            repo_dir, include_tests=False
+            ctx.repo_path, include_tests=False
         )  # Extract all Python files, optionally excluding tests
-        logger.info(f"Found {len(filenames)} files in {repo_dir} at commit {commit}")
+        logger.info(
+            f"Found {len(filenames)} files in {ctx.repo_path} at commit {commit}"
+        )
         for relative_path in filenames:
-            filename = os.path.join(repo_dir, relative_path)
+            filename = os.path.join(ctx.repo_path, relative_path)
             text = document_encoding_func(filename, relative_path)
             documents[relative_path] = text
     return documents
@@ -243,58 +321,64 @@ def make_index(
         index_path (Path): The path to the built index.
     """
     index_path = Path(root_dir, f"index__{str(instance_id)}", "index")
-    if index_path.exists():
-        return index_path
-    thread_prefix = f"(pid {os.getpid()}) "
-    documents_path = Path(root_dir, instance_id, "documents.jsonl")
-    if not documents_path.parent.exists():
-        documents_path.parent.mkdir(parents=True)
-    documents = build_documents(repo_dir, commit, document_encoding_func)
-    with open(documents_path, "w") as docfile:
-        for relative_path, contents in documents.items():
-            print(
-                json.dumps({"id": relative_path, "contents": contents}),
-                file=docfile,
-                flush=True,
+
+    # Use file lock to prevent concurrent index creation for the same instance
+    index_lock_path = index_path.parent.parent / f".{instance_id}.index.lock"
+    index_lock = FileLock(str(index_lock_path))
+
+    with index_lock:
+        if index_path.exists():
+            return index_path
+        thread_prefix = f"(pid {os.getpid()}) "
+        documents_path = Path(root_dir, instance_id, "documents.jsonl")
+        if not documents_path.parent.exists():
+            documents_path.parent.mkdir(parents=True, exist_ok=True)
+        documents = build_documents(repo_dir, commit, document_encoding_func, root_dir)
+        with open(documents_path, "w") as docfile:
+            for relative_path, contents in documents.items():
+                print(
+                    json.dumps({"id": relative_path, "contents": contents}),
+                    file=docfile,
+                    flush=True,
+                )
+        cmd = [
+            python,
+            "-m",
+            "pyserini.index",
+            "--collection",
+            "JsonCollection",
+            "--generator",
+            "DefaultLuceneDocumentGenerator",
+            "--threads",
+            "2",
+            "--input",
+            documents_path.parent.as_posix(),
+            "--index",
+            index_path.as_posix(),
+            "--storePositions",
+            "--storeDocvectors",
+            "--storeRaw",
+        ]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
             )
-    cmd = [
-        python,
-        "-m",
-        "pyserini.index",
-        "--collection",
-        "JsonCollection",
-        "--generator",
-        "DefaultLuceneDocumentGenerator",
-        "--threads",
-        "2",
-        "--input",
-        documents_path.parent.as_posix(),
-        "--index",
-        index_path.as_posix(),
-        "--storePositions",
-        "--storeDocvectors",
-        "--storeRaw",
-    ]
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-        )
-        output, error = proc.communicate()
-    except KeyboardInterrupt:
-        proc.kill()
-        raise KeyboardInterrupt
-    if proc.returncode == 130:
-        logger.warning(thread_prefix + "Process killed by user")
-        raise KeyboardInterrupt
-    if proc.returncode != 0:
-        logger.error(f"return code: {proc.returncode}")
-        raise Exception(
-            thread_prefix
-            + f"Failed to build index for {instance_id} with error {error}"
-        )
+            output, error = proc.communicate()
+        except KeyboardInterrupt:
+            proc.kill()
+            raise KeyboardInterrupt
+        if proc.returncode == 130:
+            logger.warning(thread_prefix + "Process killed by user")
+            raise KeyboardInterrupt
+        if proc.returncode != 0:
+            logger.error(f"return code: {proc.returncode}")
+            raise Exception(
+                thread_prefix
+                + f"Failed to build index for {instance_id} with error {error}"
+            )
     return index_path
 
 
