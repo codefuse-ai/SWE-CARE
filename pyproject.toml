@@ -24,6 +24,7 @@ dependencies = [
     "jedi>=0.19.2",
     "pyserini>=1.2.0",
     "httpx[socks]>=0.28.1",
+    "chardet>=5.2.0",
 ]
 
 [project.scripts]

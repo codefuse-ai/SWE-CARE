@@ -23,6 +23,7 @@ from swe_care.utils.patch import (
     get_changed_file_paths,
     is_line_changed_in_patch,
 )
+from swe_care.utils.read_file import read_file_to_string
 
 
 def cached_with_tuple_conversion(func):
@@ -652,8 +653,7 @@ def fetch_local_file_content(repo_dir: str, file_path: str) -> str:
     try:
         full_path = os.path.join(repo_dir, file_path)
         if os.path.exists(full_path):
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read()
+            return read_file_to_string(full_path)
         else:
             logger.warning(f"File not found in local repo: {file_path}")
             return ""

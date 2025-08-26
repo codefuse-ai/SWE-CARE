@@ -15,6 +15,8 @@ from git import Repo
 from loguru import logger
 from tqdm.auto import tqdm
 
+from swe_care.utils.read_file import read_file_to_string
+
 
 class ContextManager:
     """
@@ -90,7 +92,9 @@ class ContextManager:
 
     def get_readme_files(self):
         files = os.listdir(self.worktree_path)
-        files = list(filter(lambda x: os.path.isfile(x), files))
+        files = list(
+            filter(lambda x: os.path.isfile(os.path.join(self.worktree_path, x)), files)
+        )
         files = list(filter(lambda x: x.lower().startswith("readme"), files))
         return files
 
@@ -114,15 +118,13 @@ class ContextManager:
 
 def contents_only(filename, relative_path):
     """Returns the contents of a file."""
-    with open(filename) as f:
-        return f.read()
+    return read_file_to_string(filename)
 
 
 def file_name_and_contents(filename, relative_path):
     """Returns the contents of a file along with its relative path."""
     text = relative_path + "\n"
-    with open(filename) as f:
-        text += f.read()
+    text += read_file_to_string(filename)
     return text
 
 
@@ -130,8 +132,8 @@ def file_name_and_documentation(filename, relative_path):
     """Returns the structural documentation of a Python file along with its relative path."""
     text = relative_path + "\n"
     try:
-        with open(filename) as f:
-            node = ast.parse(f.read())
+        content = read_file_to_string(filename)
+        node = ast.parse(content)
         data = ast.get_docstring(node)
         if data:
             text += f"{data}"
@@ -145,16 +147,14 @@ def file_name_and_documentation(filename, relative_path):
     except Exception as e:
         logger.error(e)
         logger.error(f"Failed to parse file {str(filename)}. Using simple filecontent.")
-        with open(filename) as f:
-            text += f.read()
+        text += read_file_to_string(filename)
     return text
 
 
 def file_name_and_docs_jedi(filename, relative_path):
     """Returns the documentation of a Python file using Jedi along with its relative path."""
     text = relative_path + "\n"
-    with open(filename) as f:
-        source_code = f.read()
+    source_code = read_file_to_string(filename)
     try:
         script = jedi.Script(source_code, path=filename)
         module = script.get_context()
@@ -251,7 +251,7 @@ def clone_repo(repo, root_dir, token):
     return repo_dir
 
 
-def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
+def build_documents(repo_dir, commit, document_encoding_func):
     """
     Builds a dictionary of documents from a given repository directory and commit.
 
@@ -259,7 +259,6 @@ def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
         repo_dir (str): The path to the repository directory.
         commit (str): The commit hash to use.
         document_encoding_func (function): A function that takes a filename and a relative path and returns the encoded document text.
-        root_dir (str, optional): Root directory for worktrees.
 
     Returns:
         dict: A dictionary where the keys are the relative paths of the documents and the values are the encoded document text.
@@ -274,8 +273,12 @@ def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
         )
         for relative_path in filenames:
             filename = os.path.join(ctx.repo_path, relative_path)
-            text = document_encoding_func(filename, relative_path)
-            documents[relative_path] = text
+            try:
+                text = document_encoding_func(filename, relative_path)
+                documents[relative_path] = text
+            except Exception as e:
+                logger.error(f"Failed to encode file {filename}: {e}")
+                continue
     return documents
 
 
@@ -326,7 +329,7 @@ def make_index(
 
         if not documents_path.parent.exists():
             documents_path.parent.mkdir(parents=True, exist_ok=True)
-        documents = build_documents(repo_dir, commit, document_encoding_func, root_dir)
+        documents = build_documents(repo_dir, commit, document_encoding_func)
         with open(documents_path, "w") as docfile:
             for relative_path, contents in documents.items():
                 print(
