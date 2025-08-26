@@ -223,11 +223,32 @@ The inference module provides two main functionalities: generating text datasets
 Before running evaluation, you can generate text datasets from the collected SWE-CARE data with different context strategies. This creates datasets in the format required for LLM evaluation.
 
 ```bash
+# Example with oracle file source
 python -m swe_care.inference create_code_review_text \
     --dataset-file "results/dataset/code_review_task_instances.jsonl" \
     --output-dir "results/code_review_text" \
     --file-source "oracle" \
     --tokens "your_github_pat"
+
+# Example with BM25 retrieval
+python -m swe_care.inference create_code_review_text \
+    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --output-dir "results/code_review_text" \
+    --file-source "bm25" \
+    --k 10 \
+    --retrieval-output-dir "results/retrieval_output" \
+    --tokens "your_github_pat" \
+    --jobs 4
+
+# Example with all files
+python -m swe_care.inference create_code_review_text \
+    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --output-dir "results/code_review_text" \
+    --file-source "all" \
+    --k 20 \
+    --retrieval-output-dir "results/retrieval_output" \
+    --tokens "your_github_pat" \
+    --jobs 4
 ```
 
 #### File Source Strategies
@@ -235,15 +256,15 @@ python -m swe_care.inference create_code_review_text \
 The `--file-source` parameter supports different strategies for selecting context files:
 
 * **oracle**: Uses ground truth files (files that were actually changed in both the review commit and merged commit)
-* **bm25**: Uses BM25 retrieval to select relevant files (requires `--retrieval-file`)
-* **all**: Uses all available files up to a specified limit (requires `--k` parameter)
+* **bm25**: Uses BM25 retrieval to select relevant files based on the problem statement (requires `--k` and `--retrieval-output-dir`)
+* **all**: Uses all available files from the repository up to a specified limit (requires `--k` and `--retrieval-output-dir`)
 
 #### Additional Parameters for Text Generation
 
-* `--k`: Maximum number of files to include (used with bm25 and all strategies)
-* `--retrieval-file`: Path to BM25 retrieval results file (required for bm25 strategy)
+* `--k`: Maximum number of files to include (required for bm25 and all strategies)
+* `--retrieval-output-dir`: Directory for retrieval operations and git repositories (required for bm25 and all strategies)
 * `--tokens`: GitHub Personal Access Token(s) for API access
-* `--jobs`: Number of parallel jobs for multithreaded processing (default: 2)
+* `--jobs`: Number of parallel jobs for processing (default: 2). Uses ProcessPoolExecutor for bm25/all strategies for better parallelism
 
 ### 2. Run LLM Inference
 

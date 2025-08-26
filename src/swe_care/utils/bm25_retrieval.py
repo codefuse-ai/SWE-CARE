@@ -220,7 +220,7 @@ def list_files(root_dir, include_tests=False):
     return files
 
 
-def clone_repo(repo, root_dir, token):
+def clone_repo(repo, root_dir, token: str | None = None):
     """
     Clones a GitHub repository to a specified directory.
 
@@ -244,13 +244,18 @@ def clone_repo(repo, root_dir, token):
 
     with clone_lock:
         if not repo_dir.exists():
-            repo_url = f"https://{token}@github.com/{repo}.git"
+            if token:
+                repo_url = f"https://{token}@github.com/{repo}.git"
+            else:
+                repo_url = f"https://github.com/{repo}.git"
             logger.info(f"Cloning {repo} {os.getpid()}")
             Repo.clone_from(repo_url, repo_dir)
     return repo_dir
 
 
-def build_documents(repo_dir, commit, document_encoding_func):
+def build_documents(
+    repo_dir, commit, document_encoding_func, include_readmes: bool = False
+):
     """
     Builds a dictionary of documents from a given repository directory and commit.
 
@@ -258,6 +263,7 @@ def build_documents(repo_dir, commit, document_encoding_func):
         repo_dir (str): The path to the repository directory.
         commit (str): The commit hash to use.
         document_encoding_func (function): A function that takes a filename and a relative path and returns the encoded document text.
+        include_readmes (bool): Whether to include README files in the documents.
 
     Returns:
         dict: A dictionary where the keys are the relative paths of the documents and the values are the encoded document text.
@@ -267,6 +273,12 @@ def build_documents(repo_dir, commit, document_encoding_func):
         filenames = list_files(
             ctx.repo_path, include_tests=False
         )  # Extract all Python files, optionally excluding tests
+
+        if include_readmes:
+            readme_files = ctx.get_readme_files()
+            # Add readme files to the front of the list
+            filenames = readme_files + filenames
+
         logger.info(
             f"Found {len(filenames)} files in {ctx.repo_path} at commit {commit}"
         )
@@ -410,13 +422,14 @@ def get_remaining_instances(instances, output_file):
     return remaining_instances
 
 
-def search(instance, index_path):
+def search(instance, index_path, k=20):
     """
     Searches for relevant documents in the given index for the given instance.
 
     Args:
         instance (dict): The instance to search for.
         index_path (str): The path to the index to search in.
+        k (int): The number of results to return.
 
     Returns:
         dict: A dictionary containing the instance ID and a list of hits, where each hit is a dictionary containing the
@@ -432,7 +445,7 @@ def search(instance, index_path):
             try:
                 hits = searcher.search(
                     instance["query"][:cutoff],
-                    k=20,
+                    k=k,
                     remove_dups=True,
                 )
             except Exception as e:
@@ -466,7 +479,7 @@ def search_indexes(remaining_instance, output_file, all_index_paths):
         if instance_id not in all_index_paths:
             continue
         index_path = all_index_paths[instance_id]
-        results = search(instance, index_path)
+        results = search(instance, index_path, k=20)
         if results is None:
             continue
         with FileLock(output_file.as_posix() + ".lock"):

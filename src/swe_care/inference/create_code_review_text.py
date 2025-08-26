@@ -5,8 +5,8 @@ This module creates datasets in the format required for SWE-CARE evaluation by p
 the original dataset and applying different file source strategies (oracle, bm25, or all).
 """
 
-import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import random
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
 from typing import Literal
@@ -16,7 +16,15 @@ from tqdm import tqdm
 
 from swe_care.schema.dataset import CodeReviewTaskInstance
 from swe_care.schema.inference import CodeReviewInferenceInstance
-from swe_care.utils.extract_prs_data import fetch_repo_file_content
+from swe_care.utils.bm25_retrieval import (
+    DOCUMENT_ENCODING_FUNCTIONS,
+    build_documents,
+    clone_repo,
+)
+from swe_care.utils.extract_prs_data import (
+    fetch_repo_file_content,
+    fetch_repo_files_content_by_retrieval,
+)
 from swe_care.utils.load import load_code_review_dataset
 from swe_care.utils.patch import get_changed_file_paths
 from swe_care.utils.template import render_template
@@ -27,7 +35,7 @@ def create_code_review_text(
     output_dir: Path | str,
     file_source: Literal["oracle", "bm25", "all"],
     k: int | None = None,
-    retrieval_file: Path | None = None,
+    retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
     jobs: int = 2,
 ) -> None:
@@ -39,7 +47,7 @@ def create_code_review_text(
         output_dir: Directory to save the generated text dataset
         file_source: Source strategy for files - 'oracle', 'bm25', or 'all'
         k: Maximum number of files to use for retrieval
-        retrieval_file: File with BM25 retrieval results (required for bm25 file_source)
+        retrieval_output_dir: Output directory for retrieval operations (required for bm25 and all file_source)
         tokens: GitHub API tokens (optional)
         jobs: Number of parallel jobs for multithreaded processing (default: 2)
     """
@@ -47,22 +55,20 @@ def create_code_review_text(
         f"Starting create_code_review_text with file_source={file_source}, jobs={jobs}"
     )
 
-    if file_source == "bm25":
-        # TODO
-        raise NotImplementedError("BM25 file source is not implemented yet")
-
     # Validate arguments
-    if file_source == "bm25" and retrieval_file is None:
-        raise ValueError("--retrieval_file is required when --file-source is 'bm25'")
+    if file_source in ["bm25", "all"]:
+        if retrieval_output_dir is None:
+            raise ValueError(
+                f"--retrieval-output-dir is required when --file-source is '{file_source}'"
+            )
+        if k is None:
+            raise ValueError(f"--k is required when --file-source is '{file_source}'")
 
     if isinstance(dataset_file, str):
         dataset_file = Path(dataset_file)
 
     if not dataset_file.exists():
         raise FileNotFoundError(f"Dataset file not found: {dataset_file}")
-
-    if file_source == "bm25" and retrieval_file and not retrieval_file.exists():
-        raise FileNotFoundError(f"Retrieval file not found: {retrieval_file}")
 
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
@@ -75,28 +81,31 @@ def create_code_review_text(
     # Load the dataset
     instances = load_code_review_dataset(dataset_file)
 
-    # Load retrieval results if using bm25
-    retrieval_data = None
-    if file_source == "bm25" and retrieval_file:
-        logger.info(f"Loading BM25 retrieval results from {retrieval_file}")
-        try:
-            with open(retrieval_file, "r") as f:
-                retrieval_data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in retrieval file: {e}")
-
     # Process dataset and generate text
     success_count = 0
     failed_count = 0
 
     # Create output file and prepare for continuous writing
-    output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
+    if k is not None and file_source in ["bm25", "all"]:
+        output_file = output_dir / f"{dataset_file.stem}__{file_source}__k{k}.jsonl"
+    else:
+        output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
     logger.info(f"Will save processed instances to {output_file}")
 
     # File lock for thread-safe writing
     file_lock = Lock()
 
-    with open(output_file, "w") as f, ThreadPoolExecutor(max_workers=jobs) as executor:
+    # Choose executor based on file_source
+    # Use ProcessPoolExecutor for bm25 and all to enable better parallelism
+    # with file system operations and git worktrees
+    if file_source in ["bm25", "all"]:
+        executor_class = ProcessPoolExecutor
+        logger.info(f"Using ProcessPoolExecutor with {jobs} workers for {file_source}")
+    else:
+        executor_class = ThreadPoolExecutor
+        logger.info(f"Using ThreadPoolExecutor with {jobs} threads")
+
+    with open(output_file, "w") as f, executor_class(max_workers=jobs) as executor:
         # Submit all tasks
         future_to_instance = {
             executor.submit(
@@ -104,7 +113,7 @@ def create_code_review_text(
                 instance,
                 file_source,
                 k,
-                retrieval_data,
+                retrieval_output_dir,
                 tokens,
             ): instance
             for instance in instances
@@ -143,7 +152,7 @@ def create_code_review_text_instance(
     instance: CodeReviewTaskInstance,
     file_source: Literal["oracle", "bm25", "all"],
     k: int | None = None,
-    retrieval_data: dict | None = None,
+    retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
 ) -> CodeReviewInferenceInstance:
     """
@@ -153,7 +162,8 @@ def create_code_review_text_instance(
         instance: Single instance from the dataset
         file_source: Source strategy for files
         k: Maximum number of files to use
-        retrieval_data: BM25 retrieval data (if applicable)
+        retrieval_output_dir: Output directory for retrieval operations (if applicable)
+        tokens: GitHub API tokens (optional)
 
     Returns:
         Processed instance with text content
@@ -162,9 +172,9 @@ def create_code_review_text_instance(
     if file_source == "oracle":
         files = get_oracle_files(instance, tokens)
     elif file_source == "bm25":
-        files = get_bm25_files(instance, retrieval_data, k)
+        files = get_bm25_files(instance, retrieval_output_dir, k, tokens)
     elif file_source == "all":
-        files = get_all_files(instance, k)
+        files = get_all_files(instance, retrieval_output_dir, k, tokens)
     else:
         raise ValueError(f"Unknown file_source: {file_source}")
 
@@ -228,17 +238,122 @@ def get_oracle_files(
 
 
 def get_bm25_files(
-    instance: CodeReviewTaskInstance, retrieval_data: dict | None, k: int
+    instance: CodeReviewTaskInstance,
+    retrieval_output_dir: Path | None,
+    k: int,
+    tokens: list[str] | None = None,
 ) -> dict[str, str]:
-    """Get files using BM25 retrieval results."""
-    # TODO
-    raise NotImplementedError("BM25 file source is not implemented yet")
+    """
+    Get files using BM25 retrieval based on problem statement.
+
+    Args:
+        instance: The code review task instance
+        retrieval_output_dir: Output directory for retrieval operations
+        k: Maximum number of files to retrieve (default: 5)
+        tokens: GitHub API tokens (optional)
+
+    Returns:
+        Dictionary mapping file paths to file contents
+    """
+
+    if retrieval_output_dir is None:
+        raise ValueError("retrieval_output_dir is required for BM25 file source")
+
+    # Use problem statement as query for BM25 retrieval
+    query = instance.problem_statement
+
+    if not query.strip():
+        logger.warning(
+            f"Empty problem statement for instance {instance.instance_id}, using PR title and body"
+        )
+        # Fallback to PR title and body if problem statement is empty
+        query = f"{instance.title}\n{instance.body}".strip()
+
+    # Retrieve files using BM25
+    files = fetch_repo_files_content_by_retrieval(
+        repo=instance.repo,
+        commit=instance.base_commit,
+        query=query,
+        retrieval_output_dir=retrieval_output_dir,
+        tokens=tokens,
+        max_files=k,
+    )
+
+    logger.info(
+        f"Retrieved {len(files)} files for instance {instance.instance_id} using BM25"
+    )
+    return files
 
 
-def get_all_files(instance: CodeReviewTaskInstance, k: int) -> dict[str, str]:
-    """Get all available files up to k limit."""
-    # TODO
-    raise NotImplementedError("All file source is not implemented yet")
+def get_all_files(
+    instance: CodeReviewTaskInstance,
+    retrieval_output_dir: Path | None,
+    k: int,
+    tokens: list[str] | None = None,
+) -> dict[str, str]:
+    """
+    Get all available files from the repository up to k limit.
+
+    This retrieves all files from the repository at the base commit using
+    a temporary git worktree for thread-safety and proper cleanup.
+
+    Args:
+        instance: The code review task instance
+        retrieval_output_dir: Output directory for git operations
+        k: Maximum number of files to retrieve (if None, retrieves all files)
+        tokens: GitHub API tokens (optional)
+
+    Returns:
+        Dictionary mapping file paths to file contents
+    """
+
+    if retrieval_output_dir is None:
+        raise ValueError("retrieval_output_dir is required for 'all' file source")
+
+    all_files = {}
+
+    try:
+        # Setup repo path
+        repo_path = Path(
+            f"{retrieval_output_dir}/repos/{instance.repo.replace('/', '__')}"
+        )
+
+        # Clone the repository if it doesn't exist
+        if not repo_path.exists():
+            Path(retrieval_output_dir).mkdir(parents=True, exist_ok=True)
+            repo_dir = clone_repo(
+                instance.repo,
+                retrieval_output_dir,
+                random.choice(tokens) if tokens else None,
+            )
+        else:
+            repo_dir = str(repo_path)
+
+        all_files = build_documents(
+            repo_dir,
+            instance.base_commit,
+            DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
+            include_readmes=True,
+        )
+
+        # Limit the number of files
+        if len(all_files) > k:
+            # Convert to list, slice to k items, then convert back to dict
+            all_files_items = list(all_files.items())[:k]
+            all_files = dict(all_files_items)
+
+        logger.info(
+            f"Retrieved {len(all_files)} files for instance {instance.instance_id} using 'all' file source"
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve all files for {instance.repo}@{instance.base_commit}: {e}"
+        )
+        # Return empty dict on failure
+        return {}
+
+    return all_files
 
 
 def generate_context_text(

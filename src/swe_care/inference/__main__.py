@@ -93,13 +93,13 @@ def get_args():
                 type=int,
                 required=False,
                 default=None,
-                help="Maximum number of files to use for retrieval",
+                help="Maximum number of files to use for retrieval (required when --file-source is 'bm25' or 'all')",
             )
             sub_parser.add_argument(
-                "--retrieval-file",
+                "--retrieval-output-dir",
                 type=Path,
                 default=None,
-                help="File with BM25 retrieval results (required when --file-source is 'bm25')",
+                help="Output directory for retrieval operations (required when --file-source is 'bm25' or 'all')",
             )
             sub_parser.add_argument(
                 "--tokens",
@@ -193,7 +193,7 @@ def main():
                     dataset_file=args.dataset_file,
                     file_source=args.file_source,
                     k=args.k,
-                    retrieval_file=args.retrieval_file,
+                    retrieval_output_dir=args.retrieval_output_dir,
                     tokens=args.tokens,
                     jobs=args.jobs,
                     **common_kwargs,

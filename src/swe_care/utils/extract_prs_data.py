@@ -1,5 +1,6 @@
 import json
 import os
+import random
 import re
 import subprocess
 from collections import defaultdict
@@ -679,7 +680,9 @@ def fetch_repo_files_content_by_retrieval(
         if not repo_path.exists():
             Path(retrieval_output_dir).mkdir(parents=True, exist_ok=True)
             repo_dir = clone_repo(
-                repo, retrieval_output_dir, tokens[0] if tokens else "git"
+                repo,
+                retrieval_output_dir,
+                random.choice(tokens) if tokens else None,
             )
 
         # Constrct the index
@@ -702,7 +705,7 @@ def fetch_repo_files_content_by_retrieval(
         instance = {"instance_id": f"{repo}_{commit[:8]}", "query": query}
 
         # Execute search
-        results = search(instance, index_path)
+        results = search(instance, index_path, k=max_files)
 
         # Extract file contents for top results
         retrieved_files = {}
