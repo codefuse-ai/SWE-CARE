@@ -673,8 +673,10 @@ def fetch_repo_files_content_by_retrieval(
 ) -> dict[str, str]:
     """Get the content of specific files from a repository at a specific commit using retrieval."""
     try:
+        repo_path = Path(f"{retrieval_output_dir}/repos/{repo.replace('/', '__')}")
+        repo_dir = str(repo_path)
         # Clone the repository to a temporary directory if the repository doesn't exist
-        if not Path(f"{retrieval_output_dir}/{repo.replace('/', '__')}").exists():
+        if not repo_path.exists():
             Path(retrieval_output_dir).mkdir(parents=True, exist_ok=True)
             repo_dir = clone_repo(
                 repo, retrieval_output_dir, tokens[0] if tokens else "git"
@@ -708,7 +710,10 @@ def fetch_repo_files_content_by_retrieval(
             # Construct path to documents.jsonl file created during indexing
             instance_id = f"{repo.replace('/', '__')}_{commit[:8]}"
             documents_path = (
-                Path(retrieval_output_dir) / instance_id / "documents.jsonl"
+                Path(retrieval_output_dir)
+                / "documents"
+                / instance_id
+                / "documents.jsonl"
             )
 
             # Load all documents from jsonl file
@@ -733,7 +738,9 @@ def fetch_repo_files_content_by_retrieval(
                             f"Retrieved file: {file_path} (score: {hit['score']:.3f})"
                         )
                     else:
-                        logger.warning(f"File {file_path} not found in documents.jsonl")
+                        logger.warning(
+                            f"File {file_path} not found in {documents_path}"
+                        )
                 except Exception as e:
                     logger.warning(
                         f"Failed to fetch content for retrieved file {file_path}: {e}"
