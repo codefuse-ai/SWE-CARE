@@ -2,7 +2,9 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any
@@ -18,117 +20,96 @@ class ContextManager:
     """
     A context manager for managing a Git repository at a specific commit using git worktree.
 
-    This implementation creates a separate worktree for each thread/process to avoid
-    conflicts when multiple threads need to access different commits of the same repository.
+    This implementation creates a temporary worktree for each usage to avoid conflicts
+    when multiple threads/processes need to access different commits of the same repository.
+    The worktree is automatically cleaned up when the context manager exits.
 
     Args:
         repo_path (str): The path to the Git repository.
         base_commit (str): The commit hash to switch to.
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
-        root_dir (str, optional): Root directory to create worktrees in. If not provided,
-                                  uses the parent directory of the repository.
 
     Attributes:
         repo_path (str): The path to the Git repository.
         base_commit (str): The commit hash to switch to.
         verbose (bool): Whether to print verbose output.
         repo (git.Repo): The Git repository object.
-        worktree_path (str): Path to the worktree.
+        worktree_path (str): Path to the temporary worktree.
         original_repo_path (str): Original repository path before worktree creation.
-        root_dir (str): Root directory for worktrees.
+        temp_dir (str): Path to the temporary directory containing the worktree.
 
     Methods:
-        __enter__(): Creates or reuses a worktree at the specified commit and returns the context manager object.
+        __enter__(): Creates a temporary worktree at the specified commit and returns the context manager object.
         get_readme_files(): Returns a list of filenames for all README files in the repository.
-        __exit__(exc_type, exc_val, exc_tb): Does not remove the worktree (reusable).
+        __exit__(exc_type, exc_val, exc_tb): Removes the temporary worktree.
     """
 
-    def __init__(self, repo_path, base_commit, verbose=False, root_dir=None):
+    def __init__(self, repo_path, base_commit, verbose=False):
         self.original_repo_path = Path(repo_path).resolve().as_posix()
         self.base_commit = base_commit
         self.verbose = verbose
         self.repo = Repo(self.original_repo_path)
         self.worktree_path = None
-        # Use provided root_dir or default to parent of repo
-        self.root_dir = root_dir or Path(self.original_repo_path).parent.as_posix()
+        self.temp_dir = None
 
     def __enter__(self):
         # Extract repository name from the path
-        # The repo path is typically something like /path/to/repos/owner__repo
         repo_basename = os.path.basename(self.original_repo_path)
 
-        # Create worktrees subdirectory
-        worktrees_dir = Path(self.root_dir) / "worktrees"
-        worktrees_dir.mkdir(parents=True, exist_ok=True)
+        # Create a unique temporary directory for this worktree
+        self.temp_dir = tempfile.mkdtemp(prefix="swe_care_git_worktree_")
 
-        # Create a worktree name in the format: owner__repo_commit
+        # Create worktree name
         worktree_name = f"{repo_basename}_{self.base_commit[:8]}"
+        self.worktree_path = os.path.join(self.temp_dir, worktree_name)
 
-        # Create worktree path in worktrees subdirectory (ensure absolute path)
-        self.worktree_path = os.path.abspath(os.path.join(worktrees_dir, worktree_name))
+        if self.verbose:
+            logger.debug(
+                f"Creating temporary worktree at {self.worktree_path} for commit {self.base_commit}"
+            )
 
-        # Use file lock to prevent concurrent worktree creation
-        worktree_lock_path = worktrees_dir / f"{worktree_name}.lock"
-        worktree_lock = FileLock(str(worktree_lock_path))
+        try:
+            # Create a new worktree at the specified commit
+            self.repo.git.worktree("add", "-f", self.worktree_path, self.base_commit)
 
-        with worktree_lock:
-            # Check if worktree already exists
-            if os.path.exists(self.worktree_path):
-                if self.verbose:
-                    logger.debug(f"Reusing existing worktree at {self.worktree_path}")
+            # Update repo_path to point to the worktree
+            self.repo_path = self.worktree_path
 
-                # Update repo_path to point to the existing worktree
-                self.repo_path = self.worktree_path
-                self.repo = Repo(self.worktree_path)
+            # Create a new Repo object for the worktree
+            self.repo = Repo(self.worktree_path)
 
-                # Ensure we're at the correct commit
-                try:
-                    current_commit = self.repo.head.commit.hexsha
-                    if not current_commit.startswith(self.base_commit[:8]):
-                        # Reset to the correct commit if needed
-                        self.repo.git.reset("--hard", self.base_commit)
-                        self.repo.git.clean("-fdxq")
-                except Exception as e:
-                    logger.warning(f"Failed to verify/reset worktree commit: {e}")
-            else:
-                # Create new worktree
-                if self.verbose:
-                    logger.debug(
-                        f"Creating new worktree at {self.worktree_path} for commit {self.base_commit}"
-                    )
-
-                try:
-                    # Ensure parent directory exists
-                    os.makedirs(os.path.dirname(self.worktree_path), exist_ok=True)
-
-                    # Create a new worktree at the specified commit
-                    self.repo.git.worktree(
-                        "add", "-f", self.worktree_path, self.base_commit
-                    )
-
-                    # Update repo_path to point to the worktree
-                    self.repo_path = self.worktree_path
-
-                    # Create a new Repo object for the worktree
-                    self.repo = Repo(self.worktree_path)
-
-                except Exception as e:
-                    logger.error(f"Failed to create worktree for {self.base_commit}")
-                    logger.error(e)
-                    raise e
+        except Exception as e:
+            logger.error(f"Failed to create worktree for {self.base_commit}")
+            logger.error(e)
+            # Clean up on error
+            if self.temp_dir and os.path.exists(self.temp_dir):
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            raise e
 
         return self
 
     def get_readme_files(self):
-        files = os.listdir(self.repo_path)
+        files = os.listdir(self.worktree_path)
         files = list(filter(lambda x: os.path.isfile(x), files))
         files = list(filter(lambda x: x.lower().startswith("readme"), files))
         return files
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Don't remove the worktree - keep it for reuse
-        # This improves performance when the same commit is accessed multiple times
-        pass
+        # Clean up the temporary worktree
+        if self.worktree_path:
+            try:
+                # First, use git to remove the worktree
+                original_repo = Repo(self.original_repo_path)
+                original_repo.git.worktree("remove", "-f", self.worktree_path)
+            except Exception as e:
+                logger.warning(f"Failed to remove worktree via git: {e}")
+
+        # Clean up the temporary directory
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            try:
+                shutil.rmtree(self.temp_dir, ignore_errors=True)
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary directory: {e}")
 
 
 def contents_only(filename, relative_path):
@@ -284,7 +265,7 @@ def build_documents(repo_dir, commit, document_encoding_func, root_dir=None):
         dict: A dictionary where the keys are the relative paths of the documents and the values are the encoded document text.
     """
     documents = dict()
-    with ContextManager(repo_dir, commit, root_dir=root_dir) as ctx:
+    with ContextManager(repo_dir, commit) as ctx:
         filenames = list_files(
             ctx.repo_path, include_tests=False
         )  # Extract all Python files, optionally excluding tests
