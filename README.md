@@ -212,6 +212,8 @@ When `--file-source` is set to any option other than `none`, review comments wil
 
 **Note**: When using `--file-source retrieved_all_files`, you must also specify `--retrieval-output-dir` to set the directory where retrieval operations will be performed and temporary files will be stored.
 
+**Important**: The `retrieved_all_files` file source strategy uses Pyserini for BM25 retrieval, which requires Java 21. Make sure Java 21 is installed on your system before using this option. See [Pyserini installation guide](https://github.com/castorini/pyserini/blob/master/docs/installation.md) for details.
+
 The output files follow the naming pattern `<repo_owner>__<repo_name>_rm_samples.jsonl` and contain `RewardModelTrainingSample` objects with comprehensive metadata for each training instance.
 
 ## 🔄 Inference
