@@ -74,6 +74,7 @@ def build_code_review_dataset_single_file(
     model_client: BaseModelClient,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
+    keep_empty_reference_review_comments: bool = False,
 ) -> tuple[int, int]:
     """
     Build code review task dataset for a single pair of files.
@@ -88,6 +89,8 @@ def build_code_review_dataset_single_file(
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id.
                       If False, replace existing instance_id data.
+        keep_empty_reference_review_comments: If True, keep dataset with empty reference review comments list.
+                                            If False, filter out data with empty reference comments list.
 
     Returns:
         Tuple of (processed_count, skipped_count)
@@ -220,6 +223,17 @@ def build_code_review_dataset_single_file(
                         # Extract patch from classification data
                         patch_to_review = commit_classification.patch
                         break
+
+                # Check if we should filter out empty reference review comments
+                if (
+                    not keep_empty_reference_review_comments
+                    and len(reference_review_comments) == 0
+                ):
+                    logger.debug(
+                        f"Skipping instance {instance_id} due to empty reference review comments"
+                    )
+                    skipped_count += 1
+                    continue
 
                 # Extract patches if not provided in classification data
                 if not patch_to_review:
@@ -360,6 +374,7 @@ def build_code_review_dataset(
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
     jobs: int = 2,
+    keep_empty_reference_review_comments: bool = False,
 ) -> None:
     """
     Build code review task dataset.
@@ -375,6 +390,8 @@ def build_code_review_dataset(
         skip_existing: If True, skip processing existing instance_id in the output file.
                       If False, replace existing instance_id data.
         jobs: Number of concurrent jobs/threads to use
+        keep_empty_reference_review_comments: If True, keep dataset with empty reference review comments list.
+                                            If False, filter out data with empty reference comments list.
     """
     if isinstance(graphql_prs_data_file, str):
         graphql_prs_data_file = Path(graphql_prs_data_file)
@@ -425,6 +442,7 @@ def build_code_review_dataset(
             model_client,
             tokens,
             skip_existing,
+            keep_empty_reference_review_comments,
         )
         logger.info(
             f"Completed: {processed_count} instances created, {skipped_count} skipped"
@@ -481,6 +499,7 @@ def build_code_review_dataset(
                     model_client,
                     tokens,
                     skip_existing,
+                    keep_empty_reference_review_comments,
                 ): (graphql_file, classification_file)
                 for graphql_file, classification_file in file_pairs
             }

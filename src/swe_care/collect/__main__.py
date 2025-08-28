@@ -224,6 +224,12 @@ def get_args():
                 default=2,
                 help="Number of concurrent jobs/threads to use (default: 2)",
             )
+            sub_parser.add_argument(
+                "--keep-empty-reference-review-comments",
+                action="store_true",
+                default=False,
+                help="Keep dataset with empty reference review comments list (default: False)",
+            )
 
         case "convert_to_rm_samples":
             sub_parser = argparse.ArgumentParser(
@@ -330,6 +336,7 @@ def main():
                     model_args=args.model_args,
                     skip_existing=args.skip_existing,
                     jobs=args.jobs,
+                    keep_empty_reference_review_comments=args.keep_empty_reference_review_comments,
                     **common_kwargs,
                 )
             case "convert_to_rm_samples":
