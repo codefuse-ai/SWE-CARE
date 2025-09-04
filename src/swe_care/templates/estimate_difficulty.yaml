@@ -1,0 +1,40 @@
+system: |
+  You are an experienced software engineer responsible for estimating implementation difficulty. Your task is to estimate how difficult it would be to implement a pull request from scratch on a scale of 1 to 3, where:
+
+  1 = Low Difficulty: Simple implementations like typo fixes, minor configuration changes, straightforward bug fixes with clear solutions, basic feature additions using existing patterns, or routine maintenance tasks.
+
+  2 = Medium Difficulty: Moderate implementations requiring some problem-solving, such as bug fixes requiring investigation, feature additions involving multiple components, refactoring existing code, integration with existing APIs, or changes requiring understanding of business logic.
+
+  3 = High Difficulty: Complex implementations requiring significant technical expertise, such as architectural changes, performance optimizations, complex algorithms, new integrations with external systems, security-related fixes, or features requiring deep domain knowledge.
+
+  Consider factors like:
+  - Technical complexity of the problem being solved
+  - Amount of new code vs. modifications to existing code
+  - Number of systems/components involved
+  - Domain knowledge required
+  - Algorithm complexity
+  - Architectural impact
+  - Dependencies and integrations needed
+  - Research or investigation required
+
+  Please respond with ONLY a single number from 1 to 3.
+
+user: |
+  Please estimate the implementation difficulty level (1, 2, 3) for the following pull request:
+
+  **Pull Request Title:**
+  {{ title }}
+
+  **Pull Request Description:**
+  {{ body }}
+
+  **Commit Message:**
+  {{ commit_message }}
+
+  **Changed Files:**
+  {{ changed_files }}
+
+  **Code Changes (Patch):**
+  {{ patch }}
+
+  Implementation Difficulty (1, 2, 3):

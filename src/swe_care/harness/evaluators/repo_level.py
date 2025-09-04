@@ -19,8 +19,6 @@ from swe_care.utils.file_source_retrieval import get_relevant_files
 from swe_care.utils.llm_models.clients import BaseModelClient
 from swe_care.utils.prompt_loader import load_prompt
 
-# System prompt is now loaded from the YAML template
-
 
 class RepoLevelLLMEvaluator(Evaluator):
     """Evaluator that uses LLM to classify review comments as positive or negative."""
@@ -225,9 +223,7 @@ class RepoLevelLLMEvaluator(Evaluator):
                 result = self.evaluate_on_reference_review_comment(defect, input)
                 classifications.append(
                     {
-                        "defect_text": defect.text[:200] + "..."
-                        if len(defect.text) > 200
-                        else defect.text,
+                        "defect_text": defect.text,
                         "label": result["label"],
                         "reason": result["reason"],
                     }
@@ -242,9 +238,7 @@ class RepoLevelLLMEvaluator(Evaluator):
                 logger.error(f"Failed to classify defect: {e}")
                 classifications.append(
                     {
-                        "defect_text": defect.text[:200] + "..."
-                        if len(defect.text) > 200
-                        else defect.text,
+                        "defect_text": defect.text,
                         "label": 0,  # Default to negative on error
                         "reason": f"Classification error: {str(e)}",
                     }
