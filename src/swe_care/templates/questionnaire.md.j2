@@ -1,0 +1,83 @@
+{#-
+This template assumes a Jinja2 rendering context variable named `instance`
+whose schema conforms to `CodeReviewTaskInstance` defined in `src/swe_care/schema/dataset.py`.
+-#}
+
+### Code Review Annotation Questionnaire
+
+**Instance ID**: `{{ instance.instance_id }}`  
+**Repository**: `{{ instance.repo }}`  
+**Pull Request**: [`#{{ instance.pull_number }}`](https://github.com/{{ instance.repo }}/pull/{{ instance.pull_number }})  
+**Language**: `{{ instance.language }}`  
+**Created at**: `{{ instance.created_at }}`  
+**Base commit**: `{{ instance.base_commit }}`  
+**Commit to review**: `{{ instance.commit_to_review.head_commit }}`
+**Commit message**:
+> {{ instance.commit_to_review.head_commit_message | default('', true) | trim | replace('\n', '\n> ') }}
+
+---
+
+### Context
+
+#### Problem Statement
+
+> {{ instance.problem_statement | default('', true) | trim | replace('\n', '\n> ') }}
+
+#### Hints (pre-PR comments or linked issues context)
+
+> {{ instance.hints_text | default('', true) | trim | replace('\n', '\n> ') }}
+
+#### Resolved Issues
+
+{% if instance.resolved_issues %}
+{% for ri in instance.resolved_issues %}
+
+##### Issue #{{ ri.number }}
+
+- Title:
+
+> {{ ri.title | default('', true) | trim | replace('\n', '\n> ') }}
+
+- Body:
+
+> {{ ri.body | default('', true) | trim | replace('\n', '\n> ') }}
+{% endfor %}
+{% else %}
+
+- None listed
+{% endif %}
+
+#### Patch to Review (diff)
+
+```diff
+{{ instance.commit_to_review.patch_to_review }}
+```
+
+#### Reference Review Comments (from the PR)
+
+Count: {{ instance.reference_review_comments | length }}
+
+{% for c in instance.reference_review_comments %}
+---
+
+##### Comment {{ loop.index }}
+
+- Review comment:
+  
+> {{ c.text | default('', true) | trim | replace('\n', '\n> ') }}
+
+- Diff hunk the review comment applied to:
+
+```diff
+{{ c.diff_hunk | default('', true) }}
+```
+
+- Path: `{{ c.path }}`
+- Line: {{ c.line if c.line is not none else 'n/a' }}  |  Start line: {{ c.start_line if c.start_line is not none else 'n/a' }}
+- Original line: {{ c.original_line if c.original_line is not none else 'n/a' }}  |  Original start line: {{ c.original_start_line if c.original_start_line is not none else 'n/a' }}
+
+{% endfor %}
+
+---
+
+{{ schema_md }}

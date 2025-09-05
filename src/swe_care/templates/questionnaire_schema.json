@@ -1,0 +1,418 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Code Review Questionnaire",
+    "description": "A schema for a questionnaire evaluating code review quality.",
+    "type": "object",
+    "properties": {
+        "section1": {
+            "title": "Section 1 — Problem Statement and Patch Alignment",
+            "type": "object",
+            "properties": {
+                "q1_1": {
+                    "title": "Is the problem statement sufficiently well-specified for reviewing this patch?",
+                    "type": "integer",
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3
+                    ],
+                    "options": [
+                        {
+                            "value": 0,
+                            "label": "Well-specified; clearly indicates what must be reviewed"
+                        },
+                        {
+                            "value": 1,
+                            "label": "Mostly clear; a few blanks left to infer"
+                        },
+                        {
+                            "value": 2,
+                            "label": "Vague; notable ambiguity about expected changes"
+                        },
+                        {
+                            "value": 3,
+                            "label": "Insufficient; cannot reasonably evaluate without more info"
+                        }
+                    ]
+                },
+                "q1_2": {
+                    "title": "Explain your choice above. Reference specific files/functions when relevant.",
+                    "type": "string"
+                },
+                "q1_3": {
+                    "title": "Does the patch address the stated problem?",
+                    "type": "object",
+                    "properties": {
+                        "answer": {
+                            "type": "string",
+                            "enum": [
+                                "Yes",
+                                "Partially",
+                                "No"
+                            ]
+                        },
+                        "reason": {
+                            "title": "Why?",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "answer",
+                        "reason"
+                    ]
+                }
+            },
+            "required": [
+                "q1_1",
+                "q1_2",
+                "q1_3"
+            ]
+        },
+        "section2": {
+            "title": "Section 2 — Review Scope and Comment Coverage",
+            "type": "object",
+            "properties": {
+                "q2_1": {
+                    "title": "Do the provided reference review comments appropriately cover the patch (scope and correctness)?",
+                    "type": "integer",
+                    "enum": [
+                        0,
+                        1,
+                        2,
+                        3
+                    ],
+                    "options": [
+                        {
+                            "value": 0,
+                            "label": "Broadly appropriate; would accept most correct reviews"
+                        },
+                        {
+                            "value": 1,
+                            "label": "Generally good; a few reasonable reviews might differ"
+                        },
+                        {
+                            "value": 2,
+                            "label": "Some reasonable reviews would be missed or penalized"
+                        },
+                        {
+                            "value": 3,
+                            "label": "Misaligned; comments focus on details unrelated to the stated problem"
+                        }
+                    ]
+                },
+                "q2_2": {
+                    "title": "Explain your choice. Identify any mis-scoped or missing review topics.",
+                    "type": "string"
+                },
+                "q2_3": {
+                    "title": "Reference Review Comments Assessment",
+                    "description": "For each reference comment, mark whether it is a true positive (valid issue), false positive (not actually an issue), or informational. Briefly justify.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer"
+                            },
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "Functionality",
+                                    "Correctness",
+                                    "Performance",
+                                    "Security",
+                                    "Maintainability",
+                                    "Style",
+                                    "Docs"
+                                ]
+                            },
+                            "verdict": {
+                                "type": "string",
+                                "enum": [
+                                    "TP",
+                                    "FP",
+                                    "Info"
+                                ]
+                            },
+                            "notes": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "index",
+                            "category",
+                            "verdict",
+                            "notes"
+                        ]
+                    }
+                },
+                "q2_4": {
+                    "title": "Missing Review Points",
+                    "description": "List important review findings not covered by the reference comments.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "q2_1",
+                "q2_2",
+                "q2_3",
+                "q2_4"
+            ]
+        },
+        "section3": {
+            "title": "Section 3 — Defects Identified in the Patch",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "title": "Defect",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "Functionality",
+                            "Correctness",
+                            "Performance",
+                            "Security",
+                            "Maintainability",
+                            "Style",
+                            "Documentation"
+                        ]
+                    },
+                    "severity": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                    },
+                    "files_locations": {
+                        "type": "string"
+                    },
+                    "short_description": {
+                        "type": "string"
+                    },
+                    "suggested_fix": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "category",
+                    "severity",
+                    "files_locations",
+                    "short_description"
+                ]
+            }
+        },
+        "section4": {
+            "title": "Section 4 — Difficulty and Review Effort",
+            "type": "object",
+            "properties": {
+                "q4_1": {
+                    "title": "Difficulty to understand and correctly review the patch",
+                    "type": "object",
+                    "properties": {
+                        "time_estimate": {
+                            "type": "string",
+                            "enum": [
+                                "<15 min",
+                                "15 min – 1 hour",
+                                "1–4 hours",
+                                ">4 hours"
+                            ]
+                        },
+                        "reason": {
+                            "title": "Why?",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "time_estimate",
+                        "reason"
+                    ]
+                },
+                "q4_2": {
+                    "title": "Estimated review effort (1–5)",
+                    "type": "object",
+                    "properties": {
+                        "effort_level": {
+                            "type": "integer",
+                            "enum": [
+                                1,
+                                2,
+                                3,
+                                4,
+                                5
+                            ],
+                            "options": [
+                                {
+                                    "value": 1,
+                                    "label": "Trivial, almost no cognitive load"
+                                },
+                                {
+                                    "value": 2,
+                                    "label": "Small effort, localized changes"
+                                },
+                                {
+                                    "value": 3,
+                                    "label": "Moderate effort, multiple files/concerns"
+                                },
+                                {
+                                    "value": 4,
+                                    "label": "High effort, complex interactions or risk"
+                                },
+                                {
+                                    "value": 5,
+                                    "label": "Very high effort, wide impact or intricate logic"
+                                }
+                            ]
+                        },
+                        "rationale": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "effort_level",
+                        "rationale"
+                    ]
+                }
+            },
+            "required": [
+                "q4_1",
+                "q4_2"
+            ]
+        },
+        "section5": {
+            "title": "Section 5 — Overall Patch Quality and Risk",
+            "type": "object",
+            "properties": {
+                "q5_1": {
+                    "title": "Does the patch meet acceptance criteria for the stated problem?",
+                    "type": "object",
+                    "properties": {
+                        "answer": {
+                            "type": "string",
+                            "enum": [
+                                "Yes",
+                                "Yes, with minor issues",
+                                "No"
+                            ]
+                        },
+                        "notes": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "answer"
+                    ]
+                },
+                "q5_2": {
+                    "title": "Regression risk assessment",
+                    "type": "object",
+                    "properties": {
+                        "risk_level": {
+                            "type": "string",
+                            "enum": [
+                                "Low",
+                                "Medium",
+                                "High"
+                            ]
+                        },
+                        "reason": {
+                            "title": "Why:",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "risk_level",
+                        "reason"
+                    ]
+                },
+                "q5_3": {
+                    "title": "Additional observations (tests, docs, API changes, compatibility)",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "q5_1",
+                "q5_2",
+                "q5_3"
+            ]
+        },
+        "section6": {
+            "title": "Section 6 — Dataset Suitability",
+            "type": "object",
+            "properties": {
+                "q6_1": {
+                    "title": "Is this instance suitable for evaluating code review quality?",
+                    "type": "object",
+                    "properties": {
+                        "answer": {
+                            "type": "string",
+                            "enum": [
+                                "Yes",
+                                "No"
+                            ]
+                        },
+                        "explanation": {
+                            "title": "If 'No', explain (e.g., ambiguous problem, non-diff artifacts, excessive binary/auto-generated changes, missing context):",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "answer"
+                    ]
+                },
+                "q6_2": {
+                    "title": "Any compliance, privacy, or licensing concerns?",
+                    "type": "object",
+                    "properties": {
+                        "answer": {
+                            "type": "string",
+                            "enum": [
+                                "No",
+                                "Yes"
+                            ]
+                        },
+                        "explanation": {
+                            "title": "If 'Yes' explain:",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "answer"
+                    ]
+                }
+            },
+            "required": [
+                "q6_1",
+                "q6_2"
+            ]
+        },
+        "section7": {
+            "title": "Section 7 — Confidence",
+            "type": "object",
+            "properties": {
+                "q7_1": {
+                    "title": "How confident are you in your annotations? (1 = very low, 5 = very high)",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                }
+            },
+            "required": [
+                "q7_1"
+            ]
+        }
+    },
+    "required": [
+        "section1",
+        "section2",
+        "section3",
+        "section4",
+        "section5",
+        "section6",
+        "section7"
+    ]
+}
