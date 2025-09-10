@@ -2,6 +2,7 @@ import json
 import re
 from typing import Any
 
+import nltk
 from loguru import logger
 from nltk.tokenize import word_tokenize
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
@@ -16,7 +17,13 @@ from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.utils.llm_models.clients import BaseModelClient
 from swe_care.utils.prompt_loader import load_prompt
 
-# System prompt is now loaded from the YAML template
+try:
+    nltk.download("punkt_tab")
+except Exception:
+    logger.error(
+        "Failed to download punkt_tab, maybe you need to use VPN to download it?"
+    )
+    raise
 
 
 class LLMEvaluator(Evaluator):

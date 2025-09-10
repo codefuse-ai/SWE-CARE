@@ -6,6 +6,7 @@ import string
 from pathlib import Path
 from typing import Literal, Optional
 
+import nltk
 from loguru import logger
 from nltk.tokenize import word_tokenize
 from rank_bm25 import BM25Okapi
@@ -17,6 +18,14 @@ from swe_care.utils.extract_prs_data import (
     fetch_repo_files_content_by_retrieval,
 )
 from swe_care.utils.patch import get_changed_file_paths
+
+try:
+    nltk.download("punkt_tab")
+except Exception:
+    logger.error(
+        "Failed to download punkt_tab, maybe you need to use VPN to download it?"
+    )
+    raise
 
 
 def get_relevant_files(
