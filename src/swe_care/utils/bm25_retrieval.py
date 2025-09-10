@@ -81,8 +81,48 @@ class ContextManager:
             )
 
         try:
-            # Create a new worktree at the specified commit
-            self.repo.git.worktree("add", "-f", self.worktree_path, self.base_commit)
+            # Use file lock to prevent concurrent git operations on the same repository
+            repo_lock_path = (
+                Path(self.original_repo_path) / ".git" / "swe_care_fetch.lock"
+            )
+            repo_lock = FileLock(str(repo_lock_path))
+
+            with repo_lock:
+                # First, try to fetch the specific commit if it doesn't exist
+                try:
+                    self.repo.git.cat_file("-e", self.base_commit)
+                except Exception:
+                    # Commit doesn't exist, try to fetch it
+                    logger.info(
+                        f"Commit {self.base_commit} not found locally, fetching..."
+                    )
+                    try:
+                        # Fetch the specific commit with its history
+                        self.repo.git.fetch("origin", self.base_commit, "--depth", "1")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch commit {self.base_commit} with depth 1: {e}"
+                        )
+                        try:
+                            # Try fetching without depth limit as fallback
+                            self.repo.git.fetch("origin", self.base_commit)
+                        except Exception as e2:
+                            logger.warning(
+                                f"Failed to fetch specific commit {self.base_commit}: {e2}"
+                            )
+                            # As a last resort, try to deepen the clone
+                            try:
+                                self.repo.git.fetch("--unshallow")
+                            except Exception as e3:
+                                logger.error(f"Failed to unshallow clone: {e3}")
+
+            # Create a new worktree at the specified commit (outside the lock)
+            # Skip LFS files to avoid authentication and download issues
+            env = os.environ.copy()
+            env["GIT_LFS_SKIP_SMUDGE"] = "1"
+            self.repo.git.worktree(
+                "add", "-f", self.worktree_path, self.base_commit, env=env
+            )
 
             # Update repo_path to point to the worktree
             self.repo_path = self.worktree_path
@@ -259,7 +299,10 @@ def clone_repo(repo, root_dir, token: str | None = None):
             else:
                 repo_url = f"https://github.com/{repo}.git"
             logger.info(f"Cloning {repo} {os.getpid()}")
-            Repo.clone_from(repo_url, repo_dir)
+            # Use shallow clone to speed up initial clone, skip LFS files
+            env = os.environ.copy()
+            env["GIT_LFS_SKIP_SMUDGE"] = "1"
+            Repo.clone_from(repo_url, repo_dir, depth=1, env=env)
     return repo_dir
 
 
