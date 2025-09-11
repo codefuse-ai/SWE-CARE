@@ -32,17 +32,20 @@ LLM_CLIENT_MAP = {
     "anthropic": {
         "client_class": AnthropicClient,
         "models": [
-            {"name": "claude-opus-4-20250514", "max_input_tokens": 200000},
-            {"name": "claude-sonnet-4-20250514", "max_input_tokens": 200000},
-            {"name": "claude-3-7-sonnet-20250219", "max_input_tokens": 200000},
-            {"name": "claude-3-5-sonnet-20241022", "max_input_tokens": 200000},
+            {"name": "claude-opus-4", "max_input_tokens": 200000},
+            {"name": "claude-sonnet-4", "max_input_tokens": 200000},
+            {"name": "claude-3-7-sonnet", "max_input_tokens": 200000},
         ],
     },
     "deepseek": {
         "client_class": DeepSeekClient,
         "models": [
-            {"name": "deepseek-chat", "max_input_tokens": 65536},
-            {"name": "deepseek-reasoner", "max_input_tokens": 65536},
+            {"name": "deepseek-chat", "max_input_tokens": 128000},  # DeepSeek-V3.1
+            {"name": "DeepSeek-V3.1", "max_input_tokens": 128000},
+            {
+                "name": "deepseek-reasoner",
+                "max_input_tokens": 128000,
+            },  # DeepSeek-V3.1 thinking
         ],
     },
     "qwen": {
@@ -157,3 +160,59 @@ def parse_model_args(model_args_str: str | None) -> dict[str, Any]:
             args[key] = value
 
     return args
+
+
+def get_model_info(model_name: str) -> tuple[str, int]:
+    """Get normalized model name and max input tokens for a given model.
+
+    Args:
+        model_name: Model name that might be from different providers
+                    (e.g., 'us.anthropic.claude-sonnet-4-20250514-v1:0')
+
+    Returns:
+        Tuple of (normalized_model_name, max_input_tokens)
+
+    Raises:
+        ValueError: If model cannot be found
+    """
+    # Normalize model name by checking for known patterns
+    normalized_name = None
+    max_tokens = None
+
+    # Check each provider's models
+    for provider_info in LLM_CLIENT_MAP.values():
+        for model_info in provider_info["models"]:
+            model_canonical_name = model_info["name"]
+
+            # Check if the canonical name is contained in the input model name
+            if model_canonical_name in model_name:
+                normalized_name = model_canonical_name
+                max_tokens = model_info["max_input_tokens"]
+                break
+
+            # Also check for partial matches (e.g., "claude-sonnet-4" in "claude-sonnet-4-20250514")
+            if "-" in model_canonical_name:
+                parts = model_canonical_name.split("-")
+                # Try different combinations of parts
+                for i in range(len(parts), 0, -1):
+                    partial = "-".join(parts[:i])
+                    if (
+                        partial in model_name and len(partial) > 3
+                    ):  # Avoid too short matches
+                        normalized_name = model_canonical_name
+                        max_tokens = model_info["max_input_tokens"]
+                        break
+
+        if normalized_name:
+            break
+
+    if not normalized_name:
+        # If no exact match found, log warning and return defaults
+        logger.warning(
+            f"Could not find exact match for model '{model_name}' in LLM_CLIENT_MAP. "
+            "Using default token limit."
+        )
+        # Return the original model name with a conservative default
+        return model_name, 128000  # Conservative default
+
+    return normalized_name, max_tokens
