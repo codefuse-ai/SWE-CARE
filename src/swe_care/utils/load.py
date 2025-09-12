@@ -3,7 +3,7 @@ from pathlib import Path
 from loguru import logger
 
 from swe_care.schema.dataset import CodeReviewTaskInstance
-from swe_care.schema.evaluation import CodeReviewPrediction
+from swe_care.schema.evaluation import CodeReviewPrediction, CodeReviewEvaluationResult
 from swe_care.schema.inference import CodeReviewInferenceInstance
 
 
@@ -91,3 +91,40 @@ def load_code_review_text(
 
     logger.success(f"Loaded {len(dataset_instances)} inference text dataset instances")
     return dataset_instances
+
+
+def load_code_review_eval_result(
+    eval_result_file: Path | str,
+) -> list[CodeReviewEvaluationResult]:
+    """Load the code review evaluation results from the JSONL file.
+
+    Args:
+        eval_result_file: Path to the evaluation result JSONL file
+
+    Returns:
+        List of CodeReviewEvaluationResult objects
+
+    Raises:
+        FileNotFoundError: If the evaluation result file doesn't exist
+        Exception: If there's an error parsing the file
+    """
+    if isinstance(eval_result_file, str):
+        eval_result_file = Path(eval_result_file)
+    logger.info(f"Loading evaluation results from {eval_result_file}...")
+
+    if not eval_result_file.exists():
+        raise FileNotFoundError(f"Evaluation result file not found: {eval_result_file}")
+
+    eval_results: list[CodeReviewEvaluationResult] = []
+
+    with open(eval_result_file, "r") as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                result = CodeReviewEvaluationResult.from_json(line.strip())
+                eval_results.append(result)
+            except Exception as e:
+                logger.error(f"Error processing line {line_num}: {e}")
+                raise e
+
+    logger.success(f"Loaded {len(eval_results)} evaluation results")
+    return eval_results

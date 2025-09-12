@@ -70,6 +70,28 @@ python scripts/run_eval_pipeline.py \
 
 This script automates the entire evaluation process: text generation → inference → evaluation. See [scripts/README.md](scripts/README.md) for detailed usage.
 
+### Analysis and Reporting
+
+After running evaluations, you can generate comprehensive analysis reports:
+
+```bash
+# Generate evaluation report from pipeline results
+python scripts/eval_report.py \
+    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --eval-output-dir results/pipeline_output/evaluation \
+    --report-output-file results/evaluation_report.json
+```
+
+This generates detailed statistics including:
+
+* Model performance across different file source settings (none, oracle, bm25 with k)
+* Performance breakdown by evaluator type (RuleBasedEvaluator, LLMEvaluator)
+* Performance analysis by metadata categories (problem domain, difficulty, estimated review effort)
+* Ranking of all model-setting configurations by average score
+* Identification of missing instances (assigned score of 0 for fair comparison)
+
+The output is a comprehensive JSON report that can be used for further analysis and visualization.
+
 ## 📊 Data Collection
 
 The data collection process involves several steps to gather and process data from GitHub. The main scripts for this process are located in `src/swe_care/collect`.
