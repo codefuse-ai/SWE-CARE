@@ -174,3 +174,5 @@ dev/
 *.ipynb
 
 .DS_Store
+
+.serena/
