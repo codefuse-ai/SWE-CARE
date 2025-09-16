@@ -1,22 +1,10 @@
-# SWE-CARE: Software Engineering - Code Analysis and Review Evaluation
+# SWE-CARE: A Comprehensiveness-aware Benchmark for Evaluation of Code Review
 
-A comprehensive benchmark for evaluating Large Language Models (LLMs) on software engineering tasks, with a focus on code analysis, review, and issue-resolving capabilities.
+A comprehensiveness-aware benchmark for repository-level CR evaluation.
 
 ## 📝 Overview
 
-The primary goal of SWE-CARE is to assess LLMs in the following areas:
-
-* **Solving Complex Programming Problems**: Evaluating the model's capability to understand, locate, and fix issues in real codebases.
-* **Code Change Analysis**: Assessing the model's ability to analyze code changes, identify potential problems, and suggest improvements.
-* **Complex Code Reasoning**: Measuring the model's deep analysis and reasoning skills regarding code logic, structure, and functionality.
-* **Code Review Generation**: Evaluating the model's understanding of the logic behind a fix by generating a human-readable code review report.
-
-SWE-CARE features two main task types:
-
-1. **Issue Resolving**: Given a problem description (e.g., a GitHub issue), the model must generate a code patch to fix it. Evaluation is done by applying the patch and running tests in a reproducible environment.
-2. **Code Review**: Given a code diff, the model must generate a comprehensive code review report. The quality of the report is assessed using a combination of automated metrics and LLM-as-a-judge evaluation.
-
-The benchmark currently supports Python and Java.
+Code review (CR) refers to the process of having other developers on the team check the code written by a particular developer. It aims to improve the code quality and find code defects and plays an important role in software quality maintenance. Some research had proposed some CR benchmarks and automatic CR approaches. However, existing CR benchmarks and approaches, lack of comprehensiveness, which is not close to the real scenario. The rapid growth of Large Language Model (LLM) capabilities has made comprehensive CR a possibility. To evaluate the LLMs' performance in comprehensive CR, we construct a comprehensiveness-aware CR dataset in Python, namely SWE-CARE. The dataset is categorized into nine types and each instance's information covers the full process of code review. In addition, the repository-level feature is also included in each instance. Based on the dataset, we design a framework to evaluate LLM’s performance on CR.
 
 ## 🛠️ Set Up
 
