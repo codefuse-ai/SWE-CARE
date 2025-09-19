@@ -64,6 +64,18 @@ python scripts/run_eval_pipeline.py \
     --retrieval-output-dir results/retrieval_output
 ```
 
+Using Tree-sitter skeletons for Python files (works with any file-source):
+
+```bash
+python scripts/run_eval_pipeline.py \
+    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --output-dir results/pipeline_output \
+    --model gpt-4o \
+    --model-provider openai \
+    --file-source oracle \
+    --use-skeleton
+```
+
 ### Arguments
 
 **Required:**
@@ -88,18 +100,20 @@ python scripts/run_eval_pipeline.py \
 The script creates the following directory structure:
 
 ```
+
 <output-dir>/
 ├── pipeline_config_YYYYMMDD_HHMMSS.json    # Complete pipeline configuration (timestamped)
 ├── pipeline_YYYYMMDD_HHMMSS.log           # Detailed execution log (timestamped)
 ├── code_review_text/                       # Generated text datasets
-│   └── <dataset_name>__<file_source>.jsonl
-│   └── <dataset_name>__<file_source>__k<N>.jsonl  # For bm25/all with k parameter
+│   └── <dataset_name>__<file_source>[**skeleton].jsonl
+│   └── <dataset_name>**<file_source>**k<N>[**skeleton].jsonl  # For bm25/all with k parameter
 ├── predictions/                            # Model predictions organized by model
 │   └── <safe_model_name>/                  # Model-specific subdirectory
-│       └── <dataset_name>__<safe_model_name>.jsonl
+│       └── <dataset_name>**<safe_model_name>.jsonl
 └── evaluation/                             # Evaluation results organized by model
     └── <safe_model_name>/                  # Model-specific subdirectory
-        └── <dataset_name>__<safe_model_name>_report_YYYYMMDD_HHMMSS.jsonl
+        └── <dataset_name>**<safe_model_name>_report_YYYYMMDD_HHMMSS.jsonl
+
 ```
 
 ### Notes

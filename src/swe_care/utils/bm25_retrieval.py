@@ -26,6 +26,7 @@ from loguru import logger
 from tqdm.auto import tqdm
 
 from swe_care.utils.read_file import read_file_to_string
+from swe_care.utils.tree_sitter import TreeSitterStubGenerator
 
 
 class ContextManager:
@@ -242,11 +243,29 @@ def file_name_and_docs_jedi(filename, relative_path):
     return text
 
 
+def skeleton_stub(filename, relative_path):
+    """Returns a Tree-sitter-based stub of a Python file with its relative path."""
+    try:
+        content = contents_only(filename, relative_path)
+        if relative_path.endswith(".py"):
+            stubber = TreeSitterStubGenerator()
+            return stubber.generate_stub(content)
+        else:
+            return content
+    except Exception as e:
+        logger.error(e)
+        logger.error(
+            f"Failed to generate skeleton for {str(filename)}. Using original file content."
+        )
+        return content
+
+
 DOCUMENT_ENCODING_FUNCTIONS = {
     "contents_only": contents_only,
     "file_name_and_contents": file_name_and_contents,
     "file_name_and_documentation": file_name_and_documentation,
     "file_name_and_docs_jedi": file_name_and_docs_jedi,
+    "skeleton": skeleton_stub,
 }
 
 
@@ -366,8 +385,13 @@ def make_index(
     Returns:
         index_path (Path): The path to the built index.
     """
-    # Create indexes subdirectory
-    indexes_dir = Path(root_dir) / "indexes"
+    if document_encoding_func == skeleton_stub:
+        # Create skeleton indexes subdirectory
+        indexes_dir = Path(root_dir) / "skeleton_indexes"
+    else:
+        # Create indexes subdirectory
+        indexes_dir = Path(root_dir) / "indexes"
+
     indexes_dir.mkdir(parents=True, exist_ok=True)
 
     # Extract repo info from instance_id (format: owner__repo_commit)

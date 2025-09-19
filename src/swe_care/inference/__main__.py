@@ -120,6 +120,12 @@ def get_args():
                 default=False,
                 help="Skip existing instances in the output file based on instance_id (default: False)",
             )
+            sub_parser.add_argument(
+                "--use-skeleton",
+                action="store_true",
+                default=False,
+                help="Use TreeSitter-based Python stubs for file contents (default: False)",
+            )
 
         case "run_api":
             sub_parser = argparse.ArgumentParser(
@@ -202,6 +208,7 @@ def main():
                     tokens=args.tokens,
                     jobs=args.jobs,
                     skip_existing=args.skip_existing,
+                    use_skeleton=args.use_skeleton,
                     **common_kwargs,
                 )
             case "run_api":

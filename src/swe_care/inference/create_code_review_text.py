@@ -39,6 +39,7 @@ def create_code_review_text(
     tokens: list[str] | None = None,
     jobs: int = 2,
     skip_existing: bool = False,
+    use_skeleton: bool = False,
 ) -> None:
     """
     Generate text datasets from SWE-CARE with specified prompts and context sources.
@@ -52,6 +53,7 @@ def create_code_review_text(
         tokens: GitHub API tokens (optional)
         jobs: Number of parallel jobs for multithreaded processing (default: 2)
         skip_existing: Skip existing instances in the output file based on instance_id (default: False)
+        use_skeleton: Use TreeSitter-based Python stubs for file contents (default: False)
     """
     logger.info(
         f"Starting create_code_review_text with file_source={file_source}, jobs={jobs}"
@@ -88,10 +90,13 @@ def create_code_review_text(
     failed_count = 0
 
     # Create output file and prepare for continuous writing
+    suffix = "__skeleton" if use_skeleton else ""
     if k is not None and file_source in ["bm25", "all"]:
-        output_file = output_dir / f"{dataset_file.stem}__{file_source}__k{k}.jsonl"
+        output_file = (
+            output_dir / f"{dataset_file.stem}__{file_source}__k{k}{suffix}.jsonl"
+        )
     else:
-        output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
+        output_file = output_dir / f"{dataset_file.stem}__{file_source}{suffix}.jsonl"
     logger.info(f"Will save processed instances to {output_file}")
 
     # Load existing instances if skip_existing is True
@@ -143,6 +148,7 @@ def create_code_review_text(
                 k,
                 retrieval_output_dir,
                 tokens,
+                use_skeleton,
             ): instance
             for instance in instances_to_process
         }
@@ -184,6 +190,7 @@ def create_code_review_text_instance(
     k: int | None = None,
     retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
+    use_skeleton: bool = False,
 ) -> CodeReviewInferenceInstance:
     """
     Process a single instance from the dataset.
@@ -194,7 +201,7 @@ def create_code_review_text_instance(
         k: Maximum number of files to use
         retrieval_output_dir: Output directory for retrieval operations (if applicable)
         tokens: GitHub API tokens (optional)
-
+        use_skeleton: Use TreeSitter-based Python stubs for file contents (default: False)
     Returns:
         Processed instance with text content
     """
@@ -202,16 +209,23 @@ def create_code_review_text_instance(
     if file_source == "none":
         files = {}  # No files for "none" strategy
     elif file_source == "oracle":
-        files = get_oracle_files(instance, tokens)
+        files = get_oracle_files(instance, tokens, use_skeleton=use_skeleton)
     elif file_source == "bm25":
-        files = get_bm25_files(instance, retrieval_output_dir, k, tokens)
+        files = get_bm25_files(
+            instance, retrieval_output_dir, k, tokens, use_skeleton=use_skeleton
+        )
     elif file_source == "all":
-        files = get_all_files(instance, retrieval_output_dir, k, tokens)
+        files = get_all_files(
+            instance, retrieval_output_dir, k, tokens, use_skeleton=use_skeleton
+        )
     else:
         raise ValueError(f"Unknown file_source: {file_source}")
 
     # Generate context text from files
-    context_text = generate_context_text(instance, files)
+    if use_skeleton:
+        context_text = generate_context_text(instance, files, add_line_numbers=False)
+    else:
+        context_text = generate_context_text(instance, files)
 
     return CodeReviewInferenceInstance(
         **instance.to_dict(),
@@ -222,6 +236,8 @@ def create_code_review_text_instance(
 def get_oracle_files(
     instance: CodeReviewTaskInstance,
     tokens: list[str] | None = None,
+    *,
+    use_skeleton: bool = False,
 ) -> dict[str, str]:
     """
     Get file path and file content using oracle strategy (ground truth files).
@@ -258,10 +274,27 @@ def get_oracle_files(
             logger.warning(f"Failed to fetch content for {file_path}: {e}")
             changed_files[file_path] = ""
 
+    # Optionally convert Python files to skeleton stubs
+    if use_skeleton:
+        from swe_care.utils.tree_sitter import TreeSitterStubGenerator
+
+        stubber = TreeSitterStubGenerator()
+        for path in list(changed_files.keys()):
+            if path.endswith(".py"):
+                try:
+                    changed_files[path] = stubber.generate_stub(changed_files[path])
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate stub for {path}, using original content: {e}"
+                    )
+
     # Filter out files without content and return only the files we fetched
     result = {
         path: content for path, content in changed_files.items() if content is not None
     }
+
+    # Sort by key for consistent ordering
+    result = dict(sorted(result.items()))
 
     logger.info(
         f"Retrieved {len(result)} oracle files for instance {instance.instance_id}"
@@ -274,6 +307,8 @@ def get_bm25_files(
     retrieval_output_dir: Path | None,
     k: int,
     tokens: list[str] | None = None,
+    *,
+    use_skeleton: bool = False,
 ) -> dict[str, str]:
     """
     Get files using BM25 retrieval based on problem statement.
@@ -283,7 +318,7 @@ def get_bm25_files(
         retrieval_output_dir: Output directory for retrieval operations
         k: Maximum number of files to retrieve (default: 5)
         tokens: GitHub API tokens (optional)
-
+        use_skeleton: Use TreeSitter-based Python stubs for file contents (default: False)
     Returns:
         Dictionary mapping file paths to file contents
     """
@@ -309,6 +344,7 @@ def get_bm25_files(
         retrieval_output_dir=retrieval_output_dir,
         tokens=tokens,
         max_files=k,
+        use_skeleton=use_skeleton,
     )
 
     logger.info(
@@ -322,6 +358,8 @@ def get_all_files(
     retrieval_output_dir: Path | None,
     k: int,
     tokens: list[str] | None = None,
+    *,
+    use_skeleton: bool = False,
 ) -> dict[str, str]:
     """
     Get all available files from the repository up to k limit.
@@ -334,7 +372,7 @@ def get_all_files(
         retrieval_output_dir: Output directory for git operations
         k: Maximum number of files to retrieve (if None, retrieves all files)
         tokens: GitHub API tokens (optional)
-
+        use_skeleton: Use TreeSitter-based Python stubs for file contents (default: False)
     Returns:
         Dictionary mapping file paths to file contents
     """
@@ -361,10 +399,16 @@ def get_all_files(
         else:
             repo_dir = str(repo_path)
 
+        encoding_func = (
+            DOCUMENT_ENCODING_FUNCTIONS["skeleton"]
+            if use_skeleton
+            else DOCUMENT_ENCODING_FUNCTIONS["contents_only"]
+        )
+
         all_files = build_documents(
             repo_dir,
             instance.base_commit,
-            DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
+            encoding_func,
             include_readmes=True,
         )
 

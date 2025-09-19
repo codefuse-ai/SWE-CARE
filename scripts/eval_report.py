@@ -37,10 +37,13 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
     # Remove .jsonl extension
     name_parts = filename.replace(".jsonl", "")
 
-    # Pattern for files with bm25 and k value
-    bm25_pattern = r"^(.+?)__bm25__k(\d+)__(.+?)_report_(\d{8}_\d{6})$"
-    # Pattern for files without k value (oracle, none)
-    basic_pattern = r"^(.+?)__(oracle|none)__(.+?)_report_(\d{8}_\d{6})$"
+    # Support optional __skeleton suffix before model name
+    # Pattern for files with bm25 and k value, optional __skeleton
+    bm25_pattern = r"^(.+?)__bm25__k(\d+)(__skeleton)?__(.+?)_report_(\d{8}_\d{6})$"
+    # Pattern for files without k value (oracle, none, all), optional __skeleton
+    basic_pattern = (
+        r"^(.+?)__(oracle|none|all)(__skeleton)?__(.+?)_report_(\d{8}_\d{6})$"
+    )
 
     bm25_match = re.match(bm25_pattern, name_parts)
     if bm25_match:
@@ -48,9 +51,10 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
             "dataset_name": bm25_match.group(1),
             "file_source": "bm25",
             "k": int(bm25_match.group(2)),
-            "model_name": bm25_match.group(3),
-            "timestamp": bm25_match.group(4),
-            "datetime": datetime.strptime(bm25_match.group(4), "%Y%m%d_%H%M%S"),
+            "skeleton": bm25_match.group(3) is not None,
+            "model_name": bm25_match.group(4),
+            "timestamp": bm25_match.group(5),
+            "datetime": datetime.strptime(bm25_match.group(5), "%Y%m%d_%H%M%S"),
         }
 
     basic_match = re.match(basic_pattern, name_parts)
@@ -59,20 +63,20 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
             "dataset_name": basic_match.group(1),
             "file_source": basic_match.group(2),
             "k": None,
-            "model_name": basic_match.group(3),
-            "timestamp": basic_match.group(4),
-            "datetime": datetime.strptime(basic_match.group(4), "%Y%m%d_%H%M%S"),
+            "skeleton": basic_match.group(3) is not None,
+            "model_name": basic_match.group(4),
+            "timestamp": basic_match.group(5),
+            "datetime": datetime.strptime(basic_match.group(5), "%Y%m%d_%H%M%S"),
         }
 
     logger.warning(f"Could not parse filename: {filename}")
     return None
 
 
-def get_file_source_key(file_source: str, k: Optional[int]) -> str:
+def get_file_source_key(file_source: str, k: Optional[int], skeleton: bool) -> str:
     """Generate a consistent key for file source settings."""
-    if file_source == "bm25" and k is not None:
-        return f"bm25_k{k}"
-    return file_source
+    base = f"bm25_k{k}" if file_source == "bm25" and k is not None else file_source
+    return f"{base}_skeleton" if skeleton else base
 
 
 def collect_eval_results(
@@ -100,7 +104,7 @@ def collect_eval_results(
             parsed = parse_eval_filename(result_file.name)
             if parsed:
                 file_source_key = get_file_source_key(
-                    parsed["file_source"], parsed["k"]
+                    parsed["file_source"], parsed["k"], parsed.get("skeleton", False)
                 )
                 files_by_setting[file_source_key].append(
                     {"path": result_file, "parsed": parsed}
@@ -276,6 +280,73 @@ def generate_report(
 
         report["model_results"][model_name] = model_report
 
+    # Skeleton analysis: compare with/without skeleton for identical settings
+    def is_skeleton_setting(s: str) -> bool:
+        return s.endswith("_skeleton")
+
+    def base_setting(s: str) -> str:
+        return s[:-10] if is_skeleton_setting(s) else s
+
+    skeleton_by_model: List[Dict[str, Any]] = []
+    aggregated_by_base: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+
+    for model_name, model_data in report["model_results"].items():
+        settings = model_data.get("settings", {})
+        # Build pairs by base setting
+        by_base: Dict[str, Dict[str, Any]] = {}
+        for setting_name, data in settings.items():
+            b = base_setting(setting_name)
+            slot = by_base.setdefault(b, {})
+            key = "with" if is_skeleton_setting(setting_name) else "without"
+            slot[key] = data
+        # Create entries where both present
+        for b, pair in by_base.items():
+            if "with" in pair and "without" in pair:
+                with_data = pair["with"]
+                without_data = pair["without"]
+                entry = {
+                    "model": model_name,
+                    "setting_base": b,
+                    "with_skeleton": with_data.get("average_score", 0.0),
+                    "without_skeleton": without_data.get("average_score", 0.0),
+                    "delta": with_data.get("average_score", 0.0)
+                    - without_data.get("average_score", 0.0),
+                    "coverage_with_skeleton": with_data.get("evaluated_instances", 0)
+                    / max(1, report["metadata"]["total_instances"]),
+                    "coverage_without_skeleton": without_data.get(
+                        "evaluated_instances", 0
+                    )
+                    / max(1, report["metadata"]["total_instances"]),
+                }
+                skeleton_by_model.append(entry)
+                aggregated_by_base[b].append(entry)
+
+    # Aggregate across models by base setting
+    skeleton_overview: Dict[str, Dict[str, Any]] = {}
+    for b, entries in aggregated_by_base.items():
+        if not entries:
+            continue
+        avg_with = sum(e["with_skeleton"] for e in entries) / len(entries)
+        avg_without = sum(e["without_skeleton"] for e in entries) / len(entries)
+        avg_delta = avg_with - avg_without
+        avg_cov_with = sum(e["coverage_with_skeleton"] for e in entries) / len(entries)
+        avg_cov_without = sum(e["coverage_without_skeleton"] for e in entries) / len(
+            entries
+        )
+        skeleton_overview[b] = {
+            "models_compared": len(entries),
+            "avg_with_skeleton": avg_with,
+            "avg_without_skeleton": avg_without,
+            "avg_delta": avg_delta,
+            "avg_coverage_with_skeleton": avg_cov_with,
+            "avg_coverage_without_skeleton": avg_cov_without,
+        }
+
+    report["skeleton_analysis"] = {
+        "by_model": skeleton_by_model,
+        "overview_by_setting": skeleton_overview,
+    }
+
     # Sort rankings by average score
     model_setting_scores.sort(key=lambda x: x["average_score"], reverse=True)
     report["rankings"]["by_average_score"] = model_setting_scores
@@ -311,6 +382,21 @@ def generate_report(
             f"Score={item['average_score']:.4f}, "
             f"Coverage={item['evaluated_ratio']:.1%}"
         )
+
+    # Print skeleton comparison summary if available
+    if report.get("skeleton_analysis", {}).get("by_model"):
+        comps = sorted(
+            report["skeleton_analysis"]["by_model"],
+            key=lambda x: x["delta"],
+            reverse=True,
+        )
+        print("\n=== Skeleton vs Non-Skeleton (by model/setting base) ===")
+        for i, e in enumerate(comps[:10], 1):
+            print(
+                f"{i}. {e['model']} [{e['setting_base']}]: "
+                f"with={e['with_skeleton']:.4f}, without={e['without_skeleton']:.4f}, "
+                f"delta={e['delta']:+.4f}"
+            )
 
 
 def main():

@@ -669,6 +669,7 @@ def fetch_repo_files_content_by_retrieval(
     retrieval_output_dir: str | Path,
     tokens: Optional[list[str]] = None,
     max_files: int = 5,
+    use_skeleton: bool = False,
 ) -> dict[str, str]:
     """Get the content of specific files from a repository at a specific commit using retrieval."""
     try:
@@ -688,7 +689,11 @@ def fetch_repo_files_content_by_retrieval(
             repo_dir=repo_dir,
             root_dir=retrieval_output_dir,
             commit=commit,
-            document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
+            document_encoding_func=(
+                DOCUMENT_ENCODING_FUNCTIONS["skeleton"]
+                if use_skeleton
+                else DOCUMENT_ENCODING_FUNCTIONS["contents_only"]
+            ),
             instance_id=f"{repo.replace('/', '__')}_{commit[:8]}",
         )
 

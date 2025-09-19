@@ -79,6 +79,7 @@ def run_create_code_review_text(
     tokens: list[str] | None,
     jobs: int,
     skip_existing: bool,
+    use_skeleton: bool,
 ) -> Path:
     """Run the create_code_review_text module."""
     logger.info("=" * 80)
@@ -100,6 +101,8 @@ def run_create_code_review_text(
         "--jobs",
         str(jobs),
     ]
+    if use_skeleton:
+        args.append("--use-skeleton")
 
     if k is not None:
         args.extend(["--k", str(k)])
@@ -121,10 +124,13 @@ def run_create_code_review_text(
 
     # Determine output file name based on file_source
     # Based on create_code_review_text.py
+    skeleton_suffix = "__skeleton" if use_skeleton else ""
     if k is not None and file_source in ["bm25", "all"]:
-        output_filename = f"{dataset_file.stem}__{file_source}__k{k}.jsonl"
+        output_filename = (
+            f"{dataset_file.stem}__{file_source}__k{k}{skeleton_suffix}.jsonl"
+        )
     else:
-        output_filename = f"{dataset_file.stem}__{file_source}.jsonl"
+        output_filename = f"{dataset_file.stem}__{file_source}{skeleton_suffix}.jsonl"
     output_file = text_output_dir / output_filename
 
     if not output_file.exists():
@@ -396,6 +402,11 @@ Example usage:
         help="Source strategy for files (default: none)",
     )
     parser.add_argument(
+        "--use-skeleton",
+        action="store_true",
+        help="Use TreeSitter-based stubs for Python files in retrieval/context",
+    )
+    parser.add_argument(
         "--k",
         type=int,
         help="Maximum number of files to use (required when file-source is 'bm25' or 'all')",
@@ -489,6 +500,7 @@ Example usage:
             tokens=args.github_tokens,
             jobs=args.jobs,
             skip_existing=args.skip_existing,
+            use_skeleton=args.use_skeleton,
         )
 
         # Step 2: Run inference

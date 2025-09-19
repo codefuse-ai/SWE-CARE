@@ -54,6 +54,17 @@ python scripts/run_eval_pipeline.py \
     --model gpt-4o \
     --model-provider openai \
     --file-source oracle
+
+# Use skeleton stubs for Python files (optional)
+python scripts/run_eval_pipeline.py \
+    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --output-dir results/pipeline_output \
+    --model gpt-4o \
+    --model-provider openai \
+    --file-source bm25 \
+    --k 10 \
+    --retrieval-output-dir results/retrieval_output \
+    --use-skeleton
 ```
 
 This script automates the entire evaluation process: text generation → inference → evaluation. See [scripts/README.md](scripts/README.md) for detailed usage.
