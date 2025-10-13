@@ -27,6 +27,8 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
     Expected patterns:
     - {dataset_name}__{file_source}__{model_name}_report_{timestamp}.jsonl
     - {dataset_name}__bm25__k{k}__{model_name}_report_{timestamp}.jsonl
+    - {dataset_name}__{file_source}__skeleton__{model_name}_report_{timestamp}.jsonl
+    - {dataset_name}__bm25__k{k}__skeleton__{model_name}_report_{timestamp}.jsonl
 
     Args:
         filename: The filename to parse
@@ -279,73 +281,6 @@ def generate_report(
             )
 
         report["model_results"][model_name] = model_report
-
-    # Skeleton analysis: compare with/without skeleton for identical settings
-    def is_skeleton_setting(s: str) -> bool:
-        return s.endswith("_skeleton")
-
-    def base_setting(s: str) -> str:
-        return s[:-10] if is_skeleton_setting(s) else s
-
-    skeleton_by_model: List[Dict[str, Any]] = []
-    aggregated_by_base: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-
-    for model_name, model_data in report["model_results"].items():
-        settings = model_data.get("settings", {})
-        # Build pairs by base setting
-        by_base: Dict[str, Dict[str, Any]] = {}
-        for setting_name, data in settings.items():
-            b = base_setting(setting_name)
-            slot = by_base.setdefault(b, {})
-            key = "with" if is_skeleton_setting(setting_name) else "without"
-            slot[key] = data
-        # Create entries where both present
-        for b, pair in by_base.items():
-            if "with" in pair and "without" in pair:
-                with_data = pair["with"]
-                without_data = pair["without"]
-                entry = {
-                    "model": model_name,
-                    "setting_base": b,
-                    "with_skeleton": with_data.get("average_score", 0.0),
-                    "without_skeleton": without_data.get("average_score", 0.0),
-                    "delta": with_data.get("average_score", 0.0)
-                    - without_data.get("average_score", 0.0),
-                    "coverage_with_skeleton": with_data.get("evaluated_instances", 0)
-                    / max(1, report["metadata"]["total_instances"]),
-                    "coverage_without_skeleton": without_data.get(
-                        "evaluated_instances", 0
-                    )
-                    / max(1, report["metadata"]["total_instances"]),
-                }
-                skeleton_by_model.append(entry)
-                aggregated_by_base[b].append(entry)
-
-    # Aggregate across models by base setting
-    skeleton_overview: Dict[str, Dict[str, Any]] = {}
-    for b, entries in aggregated_by_base.items():
-        if not entries:
-            continue
-        avg_with = sum(e["with_skeleton"] for e in entries) / len(entries)
-        avg_without = sum(e["without_skeleton"] for e in entries) / len(entries)
-        avg_delta = avg_with - avg_without
-        avg_cov_with = sum(e["coverage_with_skeleton"] for e in entries) / len(entries)
-        avg_cov_without = sum(e["coverage_without_skeleton"] for e in entries) / len(
-            entries
-        )
-        skeleton_overview[b] = {
-            "models_compared": len(entries),
-            "avg_with_skeleton": avg_with,
-            "avg_without_skeleton": avg_without,
-            "avg_delta": avg_delta,
-            "avg_coverage_with_skeleton": avg_cov_with,
-            "avg_coverage_without_skeleton": avg_cov_without,
-        }
-
-    report["skeleton_analysis"] = {
-        "by_model": skeleton_by_model,
-        "overview_by_setting": skeleton_overview,
-    }
 
     # Sort rankings by average score
     model_setting_scores.sort(key=lambda x: x["average_score"], reverse=True)
