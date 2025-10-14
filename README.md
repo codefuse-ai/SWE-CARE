@@ -1,5 +1,14 @@
 # SWE-CARE: A Comprehensiveness-aware Benchmark for Evaluation of Code Review
 
+<p align="center">
+  <a href="https://arxiv.org/pdf/2509.14856">
+    <img src="https://img.shields.io/badge/Tech Report-arXiv-red"></a>
+  <a href="https://huggingface.co/datasets/inclusionAI/SWE-CARE">
+    <img src="https://img.shields.io/badge/Dataset-HuggingFace-orange"></a>
+  <a href="https://github.com/inclusionAI/SWE-CARE/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache-blue"></a>
+</p>
+
 A comprehensiveness-aware benchmark for repository-level CR evaluation.
 
 ## 📝 Overview
@@ -450,8 +459,16 @@ You can find more details about the arguments for each script by running `python
 
 ## 📜 Citation
 
-(To be added)
+If you find our work helpful, please use the following citation:
 
-## 🙏 Acknowledgements
-
-(To be added)
+```bibtex
+@misc{guo2025codefusecrbenchcomprehensivenessawarebenchmarkendtoend,
+      title={CodeFuse-CR-Bench: A Comprehensiveness-aware Benchmark for End-to-End Code Review Evaluation in Python Projects}, 
+      author={Hanyang Guo and Xunjin Zheng and Zihan Liao and Hang Yu and Peng DI and Ziyin Zhang and Hong-Ning Dai},
+      year={2025},
+      eprint={2509.14856},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2509.14856}, 
+}
+```
