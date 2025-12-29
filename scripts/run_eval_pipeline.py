@@ -231,8 +231,11 @@ def run_evaluation(
     logger.info("Step 3: Running LLM evaluation")
     logger.info("=" * 80)
 
-    # Create model-specific subdirectory for evaluation results
-    evaluation_output_dir = output_dir / "evaluation" / safe_model_name
+    # Create evaluator/model-specific subdirectory for evaluation results
+    safe_evaluator_model_name = sanitize_filename(evaluator_model)
+    evaluation_output_dir = (
+        output_dir / "evaluation" / safe_evaluator_model_name / safe_model_name
+    )
 
     # Set up environment for LLM evaluator
     # Save original environment variables to restore later

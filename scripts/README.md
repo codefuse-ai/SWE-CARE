@@ -119,9 +119,10 @@ The script creates the following directory structure:
 ├── predictions/                            # Model predictions organized by model
 │   └── <safe_model_name>/                  # Model-specific subdirectory
 │       └── <dataset_name>**<safe_model_name>.jsonl
-└── evaluation/                             # Evaluation results organized by model
-    └── <safe_model_name>/                  # Model-specific subdirectory
-        └── <dataset_name>**<safe_model_name>_report_YYYYMMDD_HHMMSS.jsonl
+└── evaluation/                             # Evaluation results organized by evaluator model
+    └── <safe_evaluator_model_name>/         # Evaluator model subdirectory (e.g., o3)
+        └── <safe_model_name>/               # Inference model subdirectory
+            └── <dataset_name>**<safe_model_name>_report_YYYYMMDD_HHMMSS.jsonl
 
 ```
 
@@ -157,12 +158,12 @@ Basic usage:
 # Using local dataset file
 python scripts/eval_report.py \
     --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
-    --eval-output-dir results/pipeline_output/evaluation \
+    --eval-output-dir results/pipeline_output/evaluation/o3 \
     --report-output-file results/evaluation_report.json
 
 # Using default Hugging Face dataset
 python scripts/eval_report.py \
-    --eval-output-dir results/pipeline_output/evaluation \
+    --eval-output-dir results/pipeline_output/evaluation/o3 \
     --report-output-file results/evaluation_report.json
 ```
 

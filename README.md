@@ -93,12 +93,12 @@ After running evaluations, you can generate comprehensive analysis reports:
 # Generate evaluation report from pipeline results
 python scripts/eval_report.py \
     --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
-    --eval-output-dir results/pipeline_output/evaluation \
+    --eval-output-dir results/pipeline_output/evaluation/o3 \
     --report-output-file results/evaluation_report.json
 
 # Or use default Hugging Face dataset
 python scripts/eval_report.py \
-    --eval-output-dir results/pipeline_output/evaluation \
+    --eval-output-dir results/pipeline_output/evaluation/o3 \
     --report-output-file results/evaluation_report.json
 ```
 
