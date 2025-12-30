@@ -477,10 +477,11 @@ python -m swe_care.harness code_review_eval \
 * `--model-args`: Comma-separated model arguments for LLM evaluation
 * `--evaluator-args`: Evaluator-specific arguments in format `evaluator1:arg1=value1,arg2=value2;evaluator2:arg1=value1`
 * `--jobs`: Number of parallel threads for evaluation (default: 2)
+* `--skip-existing`: Skip instances that already have evaluations in the output file (flag, default: False). When specified, the tool will append to the existing output file instead of overwriting it
 
 ### Output
 
-The evaluation results are saved as a JSONL file (`final_report.jsonl`) containing `CodeReviewEvaluationResult` objects with detailed metrics for each instance.
+The evaluation results are saved as a JSONL file (`<predictions_path.stem>_report.jsonl`) containing `CodeReviewEvaluationResult` objects with detailed metrics for each instance.
 
 You can find more details about the arguments for each script by running `python -m swe_care.harness <subcommand> -h`.
 

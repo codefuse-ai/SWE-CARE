@@ -102,7 +102,7 @@ python scripts/run_eval_pipeline.py \
 - `--retrieval-output-dir`: Output directory for retrieval operations (required for bm25/all)
 - `--github-tokens`: GitHub API token(s) for fetching data
 - `--jobs`: Number of parallel jobs (default: 2)
-- `--skip-existing`: Skip instances that already have predictions
+- `--skip-existing`: Skip instances that already have outputs (text/predictions/evaluations)
 
 ### Output Structure
 
@@ -122,7 +122,7 @@ The script creates the following directory structure:
 └── evaluation/                             # Evaluation results organized by evaluator model
     └── <safe_evaluator_model_name>/         # Evaluator model subdirectory (e.g., o3)
         └── <safe_model_name>/               # Inference model subdirectory
-            └── <dataset_name>**<safe_model_name>_report_YYYYMMDD_HHMMSS.jsonl
+            └── <dataset_name>**<safe_model_name>_report.jsonl
 
 ```
 
@@ -181,6 +181,6 @@ python scripts/eval_report.py \
 ### Notes
 
 - The script expects evaluation results to be organized in subdirectories by model name
-- Filename pattern must match: `{dataset}__<file_source>__<model>_report_YYYYMMDD_HHMMSS.jsonl`
-- For bm25 settings: `{dataset}__bm25__k<N>__<model>_report_YYYYMMDD_HHMMSS.jsonl`
+- Filename pattern must match: `{dataset}__<file_source>__<model>_report.jsonl` (legacy: `_report_YYYYMMDD_HHMMSS.jsonl`)
+- For bm25 settings: `{dataset}__bm25__k<N>__<model>_report.jsonl` (legacy: `_report_YYYYMMDD_HHMMSS.jsonl`)
 - All scores are averaged including zeros for missing instances to ensure fair comparison

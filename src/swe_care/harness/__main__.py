@@ -162,6 +162,12 @@ def get_args():
                 default=2,
                 help="Number of parallel jobs to run (default: 2)",
             )
+            sub_parser.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=False,
+                help="Skip instances that already have evaluations in the output file (default: False)",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -199,6 +205,7 @@ def main():
                     model_args=args.model_args,
                     evaluator_kwargs=evaluator_kwargs,
                     jobs=args.jobs,
+                    skip_existing=args.skip_existing,
                     **common_kwargs,
                 )
     else:

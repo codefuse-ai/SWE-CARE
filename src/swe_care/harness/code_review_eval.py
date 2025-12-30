@@ -4,7 +4,6 @@ Run evaluation on code review predictions.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -26,7 +25,11 @@ from swe_care.schema.evaluation import (
 )
 from swe_care.utils.llm_models import init_llm_client, parse_model_args
 from swe_care.utils.llm_models.clients import BaseModelClient
-from swe_care.utils.load import load_code_review_dataset, load_code_review_predictions
+from swe_care.utils.load import (
+    load_code_review_dataset,
+    load_code_review_eval_result,
+    load_code_review_predictions,
+)
 
 
 class EvaluatorType(str, Enum):
@@ -133,13 +136,14 @@ def code_review_eval(
     model_args: Optional[str] = None,
     evaluator_kwargs: Optional[dict[str, dict[str, Any]]] = None,
     jobs: int = 2,
+    skip_existing: bool = False,
 ) -> None:
     """
     Run evaluation on code review predictions.
 
     Args:
         predictions_path: Path to predictions file or directory containing predictions
-        output_dir: Directory where the final_report.json will be saved
+        output_dir: Directory where the evaluation report JSONL will be saved
         evaluator_types: List of evaluator types to use
         dataset_name_or_path: Path to the dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
         model: Model name to use for LLM evaluation (required if using LLM evaluator)
@@ -147,6 +151,7 @@ def code_review_eval(
         model_args: Comma-separated model arguments
         evaluator_kwargs: Dict mapping evaluator types to their kwargs
         jobs: Number of parallel jobs to run (default: 2)
+        skip_existing: Whether to skip existing evaluations in the output file
     """
     if isinstance(predictions_path, str):
         predictions_path = Path(predictions_path)
@@ -189,17 +194,42 @@ def code_review_eval(
 
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = (
-        output_dir
-        / f"{predictions_path.stem}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
-    )
+    output_file = output_dir / f"{predictions_path.stem}_report.jsonl"
+
+    # Load existing evaluations if skip_existing is True
+    existing_evaluation_ids: set[str] | None = None
+    if skip_existing and output_file.exists():
+        logger.info(f"Loading existing evaluations from {output_file} to skip...")
+        try:
+            existing_results = load_code_review_eval_result(output_file)
+            existing_evaluation_ids = {
+                result.instance_id for result in existing_results
+            }
+            logger.info(f"Found {len(existing_results)} existing evaluations")
+        except Exception as e:
+            logger.warning(f"Could not load existing evaluations: {e}")
+
+    # Filter out instances that already have evaluations
+    skipped_instances = 0
+    if skip_existing and existing_evaluation_ids is not None:
+        instances_to_process = [
+            instance
+            for instance in instances
+            if instance.instance_id not in existing_evaluation_ids
+        ]
+        skipped_instances = len(instances) - len(instances_to_process)
+        logger.info(f"Skipping {skipped_instances} instances with existing evaluations")
+    else:
+        instances_to_process = instances
+        if output_file.exists():
+            output_file.unlink()
+
+    if not instances_to_process:
+        logger.info("No instances to process. All instances already have evaluations.")
+        return
 
     # Thread-safe file writing
     write_lock = threading.Lock()
-
-    # Initialize the output file (truncate if exists)
-    with open(output_file, "w"):
-        pass  # Just create/truncate the file
 
     # Counters for tracking progress
     successful_evaluations = 0
@@ -214,12 +244,12 @@ def code_review_eval(
                 predictions=predictions,
                 evaluators=evaluators,
             ): instance
-            for instance in instances
+            for instance in instances_to_process
         }
 
         # Process completed tasks with progress bar
         with tqdm(
-            total=len(instances),
+            total=len(instances_to_process),
             desc=f"Evaluating instances with [{', '.join([e.value for e in evaluator_types])}] ({jobs} threads)",
         ) as pbar:
             for future in as_completed(future_to_instance):
@@ -248,5 +278,5 @@ def code_review_eval(
 
     logger.info(
         f"Evaluation completed. Results saved to {output_file}. "
-        f"Success: {successful_evaluations}, Failed: {failed_evaluations}"
+        f"Success: {successful_evaluations}, Failed: {failed_evaluations}, Skipped: {skipped_instances}"
     )

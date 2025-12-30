@@ -223,8 +223,8 @@ def run_evaluation(
     output_dir: Path,
     evaluator_model: str,
     jobs: int,
-    eval_start_time: datetime,
     safe_model_name: str,
+    skip_existing: bool,
 ) -> Path:
     """Run evaluation using LLM evaluator."""
     logger.info("=" * 80)
@@ -277,6 +277,8 @@ def run_evaluation(
         "--jobs",
         str(jobs),
     ]
+    if skip_existing:
+        args.append("--skip-existing")
 
     logger.info(f"Running command: {' '.join(args)}")
     logger.info(
@@ -289,38 +291,24 @@ def run_evaluation(
         runpy.run_module("swe_care.harness", run_name="__main__")
 
         # Check for output (based on code_review_eval.py)
-        # The evaluation creates a file with pattern: {predictions_path.stem}_report_{timestamp}.jsonl
+        # The evaluation creates: {predictions_path.stem}_report.jsonl
+        final_report = evaluation_output_dir / f"{predictions_file.stem}_report.jsonl"
+        if final_report.exists():
+            logger.success(f"Evaluation complete: {final_report}")
+            return final_report
+
+        # Backward-compat: older versions produced timestamped reports
         report_pattern = str(
             evaluation_output_dir / f"{predictions_file.stem}_report_*.jsonl"
         )
-        report_files = glob.glob(report_pattern)
+        report_files = [Path(p) for p in glob.glob(report_pattern)]
+        if report_files:
+            newest = max(report_files, key=lambda p: p.stat().st_mtime)
+            logger.success(f"Evaluation complete (legacy report): {newest}")
+            return newest
 
-        if not report_files:
-            logger.error(
-                f"No evaluation report found matching pattern: {report_pattern}"
-            )
-            raise RuntimeError("No evaluation report found")
-
-        # Filter report files to only those created after evaluation start time
-        valid_report_files = []
-        for report_file_path in report_files:
-            report_file = Path(report_file_path)
-            # Check file modification time
-            file_mtime = datetime.fromtimestamp(report_file.stat().st_mtime)
-            if file_mtime >= eval_start_time:
-                valid_report_files.append(report_file_path)
-
-        if not valid_report_files:
-            logger.error(
-                f"No evaluation reports found created after {eval_start_time.strftime('%Y-%m-%d %H:%M:%S')}. "
-                f"Found {len(report_files)} older reports."
-            )
-            raise RuntimeError("No valid evaluation reports found")
-
-        # Get the most recent valid report file
-        final_report = Path(max(valid_report_files))
-        logger.success(f"Evaluation complete: {final_report}")
-        return final_report
+        logger.error(f"Expected evaluation report not found: {final_report}")
+        raise RuntimeError("No evaluation report found")
 
     finally:
         # Restore original environment variables (always executed)
@@ -471,7 +459,7 @@ Example usage:
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Skip instances that already have predictions",
+        help="Skip instances that already have outputs (text/predictions/evaluations)",
     )
 
     args = parser.parse_args()
@@ -557,7 +545,6 @@ Example usage:
         )
 
         # Step 3: Run evaluation
-        eval_start_time = datetime.now()
         safe_model_name = sanitize_filename(args.model)
         evaluation_file = run_evaluation(
             dataset_name_or_path=args.dataset_name_or_path,
@@ -565,8 +552,8 @@ Example usage:
             output_dir=args.output_dir,
             evaluator_model=args.evaluator_model,
             jobs=args.jobs,
-            eval_start_time=eval_start_time,
             safe_model_name=safe_model_name,
+            skip_existing=args.skip_existing,
         )
 
         logger.success("=" * 80)

@@ -25,10 +25,20 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
     """Parse evaluation result filename to extract metadata.
 
     Expected patterns:
+    - {dataset_name}__{file_source}__{model_name}_report.jsonl
+    - {dataset_name}__bm25__k{k}__{model_name}_report.jsonl
+    - {dataset_name}__all__k{k}__{model_name}_report.jsonl
+    - {dataset_name}__{file_source}__skeleton__{model_name}_report.jsonl
+    - {dataset_name}__bm25__k{k}__skeleton__{model_name}_report.jsonl
+    - {dataset_name}__all__k{k}__skeleton__{model_name}_report.jsonl
+
+    Legacy patterns (timestamped):
     - {dataset_name}__{file_source}__{model_name}_report_{timestamp}.jsonl
     - {dataset_name}__bm25__k{k}__{model_name}_report_{timestamp}.jsonl
+    - {dataset_name}__all__k{k}__{model_name}_report_{timestamp}.jsonl
     - {dataset_name}__{file_source}__skeleton__{model_name}_report_{timestamp}.jsonl
     - {dataset_name}__bm25__k{k}__skeleton__{model_name}_report_{timestamp}.jsonl
+    - {dataset_name}__all__k{k}__skeleton__{model_name}_report_{timestamp}.jsonl
 
     Args:
         filename: The filename to parse
@@ -40,23 +50,40 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
     name_parts = filename.replace(".jsonl", "")
 
     # Support optional __skeleton suffix before model name
-    # Pattern for files with bm25 and k value, optional __skeleton
-    bm25_pattern = r"^(.+?)__bm25__k(\d+)(__skeleton)?__(.+?)_report_(\d{8}_\d{6})$"
+    # Pattern for files with k value (bm25/all), optional __skeleton
+    k_pattern = r"^(.+?)__(bm25|all)__k(\d+)(__skeleton)?__(.+?)_report$"
+    k_legacy_pattern = (
+        r"^(.+?)__(bm25|all)__k(\d+)(__skeleton)?__(.+?)_report_(\d{8}_\d{6})$"
+    )
+
     # Pattern for files without k value (oracle, none, all), optional __skeleton
-    basic_pattern = (
+    basic_pattern = r"^(.+?)__(oracle|none|all)(__skeleton)?__(.+?)_report$"
+    basic_legacy_pattern = (
         r"^(.+?)__(oracle|none|all)(__skeleton)?__(.+?)_report_(\d{8}_\d{6})$"
     )
 
-    bm25_match = re.match(bm25_pattern, name_parts)
-    if bm25_match:
+    k_match = re.match(k_pattern, name_parts)
+    if k_match:
         return {
-            "dataset_name": bm25_match.group(1),
-            "file_source": "bm25",
-            "k": int(bm25_match.group(2)),
-            "skeleton": bm25_match.group(3) is not None,
-            "model_name": bm25_match.group(4),
-            "timestamp": bm25_match.group(5),
-            "datetime": datetime.strptime(bm25_match.group(5), "%Y%m%d_%H%M%S"),
+            "dataset_name": k_match.group(1),
+            "file_source": k_match.group(2),
+            "k": int(k_match.group(3)),
+            "skeleton": k_match.group(4) is not None,
+            "model_name": k_match.group(5),
+            "timestamp": None,
+            "datetime": datetime.max,
+        }
+
+    k_legacy_match = re.match(k_legacy_pattern, name_parts)
+    if k_legacy_match:
+        return {
+            "dataset_name": k_legacy_match.group(1),
+            "file_source": k_legacy_match.group(2),
+            "k": int(k_legacy_match.group(3)),
+            "skeleton": k_legacy_match.group(4) is not None,
+            "model_name": k_legacy_match.group(5),
+            "timestamp": k_legacy_match.group(6),
+            "datetime": datetime.strptime(k_legacy_match.group(6), "%Y%m%d_%H%M%S"),
         }
 
     basic_match = re.match(basic_pattern, name_parts)
@@ -67,8 +94,20 @@ def parse_eval_filename(filename: str) -> Optional[Dict[str, Any]]:
             "k": None,
             "skeleton": basic_match.group(3) is not None,
             "model_name": basic_match.group(4),
-            "timestamp": basic_match.group(5),
-            "datetime": datetime.strptime(basic_match.group(5), "%Y%m%d_%H%M%S"),
+            "timestamp": None,
+            "datetime": datetime.max,
+        }
+
+    basic_legacy_match = re.match(basic_legacy_pattern, name_parts)
+    if basic_legacy_match:
+        return {
+            "dataset_name": basic_legacy_match.group(1),
+            "file_source": basic_legacy_match.group(2),
+            "k": None,
+            "skeleton": basic_legacy_match.group(3) is not None,
+            "model_name": basic_legacy_match.group(4),
+            "timestamp": basic_legacy_match.group(5),
+            "datetime": datetime.strptime(basic_legacy_match.group(5), "%Y%m%d_%H%M%S"),
         }
 
     logger.warning(f"Could not parse filename: {filename}")
