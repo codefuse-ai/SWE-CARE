@@ -187,19 +187,69 @@ def calculate_average_score(scores: List[float]) -> float:
 def calculate_evaluator_scores(
     results: List[CodeReviewEvaluationResult],
 ) -> Dict[str, float]:
-    """Calculate average scores by evaluator type."""
+    """Calculate average scores by evaluator type and derived metrics."""
     evaluator_scores = defaultdict(list)
+    # Additional metrics from RuleBasedEvaluator
+    f1_scores: List[float] = []
+    location_similarity_scores: List[float] = []
+    description_similarity_scores: List[float] = []
+    match_scores: List[float] = []
 
     for result in results:
         for evaluation in result.evaluations:
             evaluator_name = evaluation.evaluator
-            if evaluation.evaluation.get("score") is not None:
-                evaluator_scores[evaluator_name].append(evaluation.evaluation["score"])
+            eval_dict = evaluation.evaluation
 
-    return {
+            if eval_dict.get("score") is not None:
+                evaluator_scores[evaluator_name].append(eval_dict["score"])
+
+            # Extract RuleBasedEvaluator specific metrics
+            if evaluator_name == "RuleBasedEvaluator":
+                if eval_dict.get("f1") is not None:
+                    f1_scores.append(eval_dict["f1"])
+                if eval_dict.get("average_location_similarity") is not None:
+                    location_similarity_scores.append(
+                        eval_dict["average_location_similarity"]
+                    )
+                if eval_dict.get("average_description_similarity") is not None:
+                    description_similarity_scores.append(
+                        eval_dict["average_description_similarity"]
+                    )
+                if eval_dict.get("average_match_score") is not None:
+                    match_scores.append(eval_dict["average_match_score"])
+
+    # Build result dict with base evaluator scores
+    result_dict = {
         evaluator: calculate_average_score(scores)
         for evaluator, scores in evaluator_scores.items()
     }
+
+    # Add ModelBasedEvaluator (average of LLMEvaluator and reward_model)
+    model_based_scores = []
+    if "LLMEvaluator" in result_dict:
+        model_based_scores.append(result_dict["LLMEvaluator"])
+    if "reward_model" in result_dict:
+        model_based_scores.append(result_dict["reward_model"])
+    if model_based_scores:
+        result_dict["ModelBasedEvaluator"] = calculate_average_score(model_based_scores)
+
+    # Add RuleBasedEvaluator derived metrics
+    if f1_scores:
+        result_dict["ActionableSuggestionMatchingEvaluator"] = calculate_average_score(
+            f1_scores
+        )
+    if location_similarity_scores:
+        result_dict["LocationSimilarityEvaluator"] = calculate_average_score(
+            location_similarity_scores
+        )
+    if description_similarity_scores:
+        result_dict["SemanticsSimilarityEvaluator"] = calculate_average_score(
+            description_similarity_scores
+        )
+    if match_scores:
+        result_dict["MatchScoreEvaluator"] = calculate_average_score(match_scores)
+
+    return result_dict
 
 
 def calculate_metadata_scores(

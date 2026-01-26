@@ -126,14 +126,36 @@ def _write_eval_results(
 
 
 def _rectify_overall_score(evaluations: list[EvaluatorResult]) -> float:
-    scores: list[float] = []
+    """Calculate overall score with two-step averaging.
+
+    1. Model-based score = average of LLMEvaluator and reward_model scores
+    2. Overall score = average of model-based score and RuleBasedEvaluator score
+    """
+    scores_by_evaluator: dict[str, float] = {}
     for evaluation in evaluations:
         value = evaluation.evaluation.get("score")
         if value is None:
             continue
         if isinstance(value, (int, float)):
-            scores.append(float(value))
-    return sum(scores) / len(scores) if scores else 0.0
+            scores_by_evaluator[evaluation.evaluator] = float(value)
+
+    if not scores_by_evaluator:
+        return 0.0
+
+    # Calculate model-based score (average of LLMEvaluator and reward_model)
+    model_based_scores: list[float] = []
+    for evaluator in ("LLMEvaluator", "reward_model"):
+        if evaluator in scores_by_evaluator:
+            model_based_scores.append(scores_by_evaluator[evaluator])
+
+    # Calculate final score (average of model-based and RuleBasedEvaluator)
+    final_scores: list[float] = []
+    if model_based_scores:
+        final_scores.append(sum(model_based_scores) / len(model_based_scores))
+    if "RuleBasedEvaluator" in scores_by_evaluator:
+        final_scores.append(scores_by_evaluator["RuleBasedEvaluator"])
+
+    return sum(final_scores) / len(final_scores) if final_scores else 0.0
 
 
 def _write_evaluation_with_reward_model(
@@ -201,6 +223,36 @@ def _calculate_average(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _merge_evaluation_dicts(eval_dicts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge multiple evaluation dicts by averaging numeric fields recursively."""
+    if not eval_dicts:
+        return {}
+
+    if len(eval_dicts) == 1:
+        return eval_dicts[0].copy()
+
+    # Collect all keys from all dicts
+    all_keys: set[str] = set()
+    for d in eval_dicts:
+        all_keys.update(d.keys())
+
+    merged: dict[str, Any] = {}
+    for key in all_keys:
+        values = [d[key] for d in eval_dicts if key in d]
+        if not values:
+            continue
+
+        # Check if all values are numeric
+        if all(isinstance(v, (int, float)) for v in values):
+            merged[key] = sum(values) / len(values)
+        # Check if all values are dicts (nested structure like LLMEvaluator)
+        elif all(isinstance(v, dict) for v in values):
+            merged[key] = _merge_evaluation_dicts(values)
+        # Skip non-numeric, non-dict values (e.g., 'matches' list)
+
+    return merged
+
+
 def _write_grouped_results(eval_output_dir: Path) -> Path:
     grouped_dir = eval_output_dir / "all"
     if grouped_dir.exists():
@@ -229,7 +281,8 @@ def _write_grouped_results(eval_output_dir: Path) -> Path:
         model_name = parsed["model_name"]
 
         instance_scores: dict[str, list[float]] = defaultdict(list)
-        evaluator_scores: dict[str, dict[str, list[float]]] = defaultdict(
+        # Collect all evaluation dicts (not just scores) for each (instance, evaluator)
+        evaluator_evals: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
             lambda: defaultdict(list)
         )
 
@@ -238,22 +291,20 @@ def _write_grouped_results(eval_output_dir: Path) -> Path:
                 instance_scores[result.instance_id].append(float(result.score))
 
                 for evaluation in result.evaluations:
-                    value = evaluation.evaluation.get("score")
-                    if value is None:
-                        continue
-                    if isinstance(value, (int, float)):
-                        evaluator_scores[result.instance_id][
-                            evaluation.evaluator
-                        ].append(float(value))
+                    evaluator_evals[result.instance_id][evaluation.evaluator].append(
+                        evaluation.evaluation
+                    )
 
         grouped_results: list[CodeReviewEvaluationResult] = []
         for instance_id, scores in instance_scores.items():
             evals: list[EvaluatorResult] = []
-            for evaluator_name, scores_by_eval in evaluator_scores[instance_id].items():
+            for evaluator_name, eval_dicts in evaluator_evals[instance_id].items():
+                # Merge evaluation dicts by averaging all numeric fields recursively
+                merged_eval = _merge_evaluation_dicts(eval_dicts)
                 evals.append(
                     EvaluatorResult(
                         evaluator=evaluator_name,
-                        evaluation={"score": _calculate_average(scores_by_eval)},
+                        evaluation=merged_eval,
                     )
                 )
             evals.sort(key=lambda e: e.evaluator)
