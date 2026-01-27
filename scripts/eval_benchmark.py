@@ -126,7 +126,7 @@ def _write_eval_results(
 
 
 def _rectify_overall_score(evaluations: list[EvaluatorResult]) -> float:
-    """Calculate overall score with two-step averaging.
+    """Calculate overall score with two-step averaging, defaulting reward_model to 0.
 
     1. Model-based score = average of LLMEvaluator and reward_model scores
     2. Overall score = average of model-based score and RuleBasedEvaluator score
@@ -141,6 +141,10 @@ def _rectify_overall_score(evaluations: list[EvaluatorResult]) -> float:
 
     if not scores_by_evaluator:
         return 0.0
+
+    # Default reward_model to 0 if missing
+    if "reward_model" not in scores_by_evaluator:
+        scores_by_evaluator["reward_model"] = 0.0
 
     # Calculate model-based score (average of LLMEvaluator and reward_model)
     model_based_scores: list[float] = []

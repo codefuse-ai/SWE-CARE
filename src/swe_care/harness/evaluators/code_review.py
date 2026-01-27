@@ -372,8 +372,12 @@ class RuleBasedEvaluator(Evaluator):
                 "precision": 1.0,
                 "recall": 1.0,
                 "f1": 1.0,
+                "average_match_score": 1.0,
+                "average_location_similarity": 1.0,
+                "average_description_similarity": 1.0,
                 "num_predicted": 0,
                 "num_reference": 0,
+                "num_true_positives": 0,
                 "matches": [],
             }
 
@@ -384,8 +388,12 @@ class RuleBasedEvaluator(Evaluator):
                 "precision": 0.0,
                 "recall": 0.0,
                 "f1": 0.0,
+                "average_match_score": 0.0,
+                "average_location_similarity": 0.0,
+                "average_description_similarity": 0.0,
                 "num_predicted": 0,
                 "num_reference": len(reference),
+                "num_true_positives": 0,
                 "matches": [],
             }
 
@@ -396,8 +404,12 @@ class RuleBasedEvaluator(Evaluator):
                 "precision": 0.0,
                 "recall": 1.0,  # No reference to recall
                 "f1": 0.0,
+                "average_match_score": 0.0,
+                "average_location_similarity": 0.0,
+                "average_description_similarity": 0.0,
                 "num_predicted": len(predicted_defects),
                 "num_reference": 0,
+                "num_true_positives": 0,
                 "matches": [],
             }
 
@@ -406,7 +418,7 @@ class RuleBasedEvaluator(Evaluator):
 
         # Calculate metrics
         true_positives = sum(
-            1 for match in matches if match["combined_score"] > 0.3
+            1 for match in matches if match["combined_score"] > 0.5
         )  # Threshold for counting as TP
         total_predicted = len(predicted_defects)
         total_reference = len(reference)
@@ -417,12 +429,6 @@ class RuleBasedEvaluator(Evaluator):
             2 * (precision * recall) / (precision + recall)
             if (precision + recall) > 0
             else 0.0
-        )
-
-        # Overall score is the average of matched scores
-        matched_scores = [match["combined_score"] for match in matches]
-        average_match_score = (
-            sum(matched_scores) / len(matched_scores) if matched_scores else 0.0
         )
 
         # Calculate average similarities
@@ -442,8 +448,14 @@ class RuleBasedEvaluator(Evaluator):
             else 0.0
         )
 
-        # Combine metrics for final score
-        score = (f1 * 0.6) + (average_match_score * 0.4)
+        # Overall score is the simple average of F1, location similarity, and description similarity
+        score = (f1 + average_location_similarity + average_description_similarity) / 3
+
+        # Keep average_match_score for backward compatibility in output
+        average_match_score = (
+            self.location_weight * average_location_similarity
+            + self.description_weight * average_description_similarity
+        )
 
         return {
             "score": score,

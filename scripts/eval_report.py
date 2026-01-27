@@ -184,10 +184,45 @@ def calculate_average_score(scores: List[float]) -> float:
     return sum(scores) / len(scores)
 
 
+def calculate_rectified_instance_score(result: CodeReviewEvaluationResult) -> float:
+    """Calculate instance score with two-step averaging, defaulting reward_model to 0.
+
+    1. Model-based score = average of LLMEvaluator and reward_model scores
+    2. Overall score = average of model-based score and RuleBasedEvaluator score
+    """
+    scores_by_evaluator: Dict[str, float] = {}
+    for evaluation in result.evaluations:
+        value = evaluation.evaluation.get("score")
+        if value is not None and isinstance(value, (int, float)):
+            scores_by_evaluator[evaluation.evaluator] = float(value)
+
+    # Default reward_model to 0 if missing
+    if "reward_model" not in scores_by_evaluator:
+        scores_by_evaluator["reward_model"] = 0.0
+
+    # Calculate model-based score (average of LLMEvaluator and reward_model)
+    model_based_scores: List[float] = []
+    for evaluator in ("LLMEvaluator", "reward_model"):
+        if evaluator in scores_by_evaluator:
+            model_based_scores.append(scores_by_evaluator[evaluator])
+
+    # Calculate final score (average of model-based and RuleBasedEvaluator)
+    final_scores: List[float] = []
+    if model_based_scores:
+        final_scores.append(sum(model_based_scores) / len(model_based_scores))
+    if "RuleBasedEvaluator" in scores_by_evaluator:
+        final_scores.append(scores_by_evaluator["RuleBasedEvaluator"])
+
+    return sum(final_scores) / len(final_scores) if final_scores else 0.0
+
+
 def calculate_evaluator_scores(
-    results: List[CodeReviewEvaluationResult],
+    matched_results: List[Tuple[Any, Optional[CodeReviewEvaluationResult]]],
 ) -> Dict[str, float]:
-    """Calculate average scores by evaluator type and derived metrics."""
+    """Calculate average scores by evaluator type and derived metrics.
+
+    Includes 0 for missing instances to be consistent with metadata score calculations.
+    """
     evaluator_scores = defaultdict(list)
     # Additional metrics from RuleBasedEvaluator
     f1_scores: List[float] = []
@@ -195,28 +230,44 @@ def calculate_evaluator_scores(
     description_similarity_scores: List[float] = []
     match_scores: List[float] = []
 
-    for result in results:
+    for _, result in matched_results:
+        if result is None:
+            # Missing instance - add 0 for all evaluators
+            evaluator_scores["LLMEvaluator"].append(0.0)
+            evaluator_scores["reward_model"].append(0.0)
+            evaluator_scores["RuleBasedEvaluator"].append(0.0)
+            f1_scores.append(0.0)
+            location_similarity_scores.append(0.0)
+            description_similarity_scores.append(0.0)
+            match_scores.append(0.0)
+            continue
+
+        # Track if reward_model is present for this result
+        has_reward_model = False
+
         for evaluation in result.evaluations:
             evaluator_name = evaluation.evaluator
             eval_dict = evaluation.evaluation
 
             if eval_dict.get("score") is not None:
                 evaluator_scores[evaluator_name].append(eval_dict["score"])
+                if evaluator_name == "reward_model":
+                    has_reward_model = True
 
-            # Extract RuleBasedEvaluator specific metrics
+            # Extract RuleBasedEvaluator specific metrics (default to 0 if missing)
             if evaluator_name == "RuleBasedEvaluator":
-                if eval_dict.get("f1") is not None:
-                    f1_scores.append(eval_dict["f1"])
-                if eval_dict.get("average_location_similarity") is not None:
-                    location_similarity_scores.append(
-                        eval_dict["average_location_similarity"]
-                    )
-                if eval_dict.get("average_description_similarity") is not None:
-                    description_similarity_scores.append(
-                        eval_dict["average_description_similarity"]
-                    )
-                if eval_dict.get("average_match_score") is not None:
-                    match_scores.append(eval_dict["average_match_score"])
+                f1_scores.append(eval_dict.get("f1", 0.0) or 0.0)
+                location_similarity_scores.append(
+                    eval_dict.get("average_location_similarity", 0.0) or 0.0
+                )
+                description_similarity_scores.append(
+                    eval_dict.get("average_description_similarity", 0.0) or 0.0
+                )
+                match_scores.append(eval_dict.get("average_match_score", 0.0) or 0.0)
+
+        # Default reward_model to 0 if missing for this result
+        if not has_reward_model:
+            evaluator_scores["reward_model"].append(0.0)
 
     # Build result dict with base evaluator scores
     result_dict = {
@@ -263,7 +314,7 @@ def calculate_metadata_scores(
     }
 
     for instance, result in results:
-        score = result.score if result else 0.0
+        score = calculate_rectified_instance_score(result) if result else 0.0
 
         # Problem domain
         if instance.metadata.problem_domain:
@@ -338,16 +389,16 @@ def generate_report(
                 if result is None:
                     missing_instances.append(instance.instance_id)
 
-            # Calculate overall average score
-            scores = [r.score for _, r in matched_results if r is not None]
-            scores.extend([0.0] * len(missing_instances))  # Add 0 for missing
-            average_score = calculate_average_score(scores)
-
-            # Calculate scores by evaluator
+            # Calculate scores by evaluator (includes 0 for missing instances)
             existing_results = [r for _, r in matched_results if r is not None]
-            evaluator_scores = calculate_evaluator_scores(existing_results)
+            evaluator_scores = calculate_evaluator_scores(matched_results)
 
-            # Calculate scores by metadata
+            # Calculate overall average score as (ModelBasedEvaluator + RuleBasedEvaluator) / 2
+            model_based = evaluator_scores.get("ModelBasedEvaluator", 0.0)
+            rule_based = evaluator_scores.get("RuleBasedEvaluator", 0.0)
+            average_score = (model_based + rule_based) / 2
+
+            # Calculate scores by metadata (uses per-instance rectified scores)
             metadata_scores = calculate_metadata_scores(matched_results)
 
             model_report["settings"][setting] = {
